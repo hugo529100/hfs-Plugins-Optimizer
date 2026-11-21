@@ -119,6 +119,8 @@
         pluginRows: [],
         treeLoaded: false,
         treeFitted: false,
+        descriptions: {},
+        descriptionsLoaded: false,
         treePan: { x: 24, y: 20 },
         treeZoom: .9,
         treeDrag: null,
@@ -249,6 +251,89 @@
         host.appendChild(el)
         setTimeout(() => { el.classList.add('opt-toast-out'); setTimeout(() => el.remove(), 250) }, ms || 3200)
     }
+
+    function paintConfirmSurface(overlay, box) {
+        const pageBg = getComputedStyle(document.body).backgroundColor
+        const opaque = pageBg && pageBg !== 'rgba(0, 0, 0, 0)' && pageBg !== 'transparent'
+        const surface = opaque
+            ? `color-mix(in srgb, ${pageBg} 88%, #000)`
+            : '#0b0800'
+        overlay.style.setProperty('background-color', 'transparent', 'important')
+        overlay.style.setProperty('pointer-events', 'none', 'important')
+        box.style.setProperty('background-color', surface, 'important')
+        box.style.setProperty('color', '#eee', 'important')
+        box.style.setProperty('pointer-events', 'auto', 'important')
+    }
+
+    function uiDialog({ text, okLabel = 'Confirm', input = false, value = '' }) {
+        return new Promise(resolve => {
+            const overlay = document.createElement('div')
+            overlay.className = 'opt-confirm'
+            const box = document.createElement('div')
+            box.className = 'opt-confirm-box'
+            const msg = document.createElement('div')
+            msg.className = 'opt-confirm-text'
+            msg.textContent = text
+            box.appendChild(msg)
+            let field = null
+            if (input) {
+                field = document.createElement('input')
+                field.type = 'text'
+                field.className = 'opt-confirm-input'
+                field.value = value
+                box.appendChild(field)
+            }
+            const actions = document.createElement('div')
+            actions.className = 'opt-confirm-actions'
+            const cancel = document.createElement('button')
+            cancel.type = 'button'
+            cancel.className = 'opt-btn'
+            cancel.textContent = 'Cancel'
+            const ok = document.createElement('button')
+            ok.type = 'button'
+            ok.className = 'opt-btn opt-primary'
+            ok.textContent = okLabel
+            actions.append(ok, cancel)
+            box.appendChild(actions)
+            overlay.appendChild(box)
+            paintConfirmSurface(overlay, box)
+            ok.style.setProperty('background-color', '#ff9800', 'important')
+            ok.style.setProperty('color', '#111', 'important')
+            cancel.style.setProperty('background-color', '#2a2a2a', 'important')
+            cancel.style.setProperty('color', '#eee', 'important')
+            if (field) {
+                field.style.setProperty('background-color', '#2a2a2a', 'important')
+                field.style.setProperty('color', '#eee', 'important')
+            }
+            const fullscreenPanel = document.fullscreenElement
+                || (state.skillPanel?.classList.contains('skill-fullscreen') ? state.skillPanel : null)
+            const mount = fullscreenPanel || document.body
+            mount.appendChild(overlay)
+            const close = result => {
+                overlay.remove()
+                document.removeEventListener('keydown', onKey, true)
+                resolve(result)
+            }
+            const accept = () => close(input ? (field.value.trim() || null) : true)
+            const onKey = ev => {
+                if (ev.key === 'Escape') { ev.preventDefault(); close(input ? null : false) }
+                else if (ev.key === 'Enter' && (!input || document.activeElement === field)) {
+                    ev.preventDefault()
+                    accept()
+                }
+            }
+            cancel.addEventListener('click', () => close(input ? null : false))
+            ok.addEventListener('click', accept)
+            document.addEventListener('keydown', onKey, true)
+            setTimeout(() => {
+                if (input) { field.focus(); field.select() }
+                else ok.focus()
+            }, 0)
+        })
+    }
+
+    const uiConfirm = (text, okLabel = 'Confirm') => uiDialog({ text, okLabel })
+    const uiPrompt = (text, value = '', okLabel = 'OK') => uiDialog({ text, okLabel, input: true, value })
 
     function fmtBytes(n) {
         n = Number(n) || 0
@@ -1214,7 +1299,7 @@
     }
 
     async function clearCache() {
-        if (!confirm('Clear the GitHub cache? Cached plugin lists will be downloaded again.')) return
+        if (!(await uiConfirm('Clear the GitHub cache? Cached plugin lists will be downloaded again.', 'Clear cache'))) return
         try {
             await rest('pluginsOptimizer_clearCache')
             toast('Cache cleared')
@@ -1251,7 +1336,7 @@
 
     async function restartPlugin() {
         if (state.busy) return
-        if (!confirm('Restart Plugins-Optimizer? The admin page stays open.')) return
+        if (!(await uiConfirm('Restart Plugins-Optimizer? The admin page stays open.', 'Restart'))) return
         state.busy = true
         try {
             await apiCall('stop_plugin', { id: PLUGIN_ID }, { timeout: 30000 }).catch(() => {})
@@ -1455,8 +1540,8 @@
                 <div class="skill-confirm-box">
                     <div class="skill-confirm-text" data-skill-confirm-text></div>
                     <div class="skill-confirm-actions">
-                        <button type="button" class="opt-btn" data-skill-confirm-cancel>Cancel</button>
                         <button type="button" class="opt-btn opt-primary" data-skill-confirm-ok>Confirm</button>
+                        <button type="button" class="opt-btn" data-skill-confirm-cancel>Cancel</button>
                     </div>
                 </div>
             </div>
@@ -1645,6 +1730,8 @@
         renderTree()
         refreshHiddenVisibility()
         await loadUiState()
+        await loadDescriptions()
+        renderTree()
     }
 
     async function refreshTreeInstalled(expected = null) {
@@ -1730,15 +1817,70 @@
         }
     }
 
+    function descriptionEntryFor(id, repo) {
+        const map = state.descriptions || {}
+        const direct = map[id] || (repo && map[repo])
+        if (direct) return direct
+        const tail = String(repo || id || '').split('/').pop()
+        return Object.values(map).find(entry =>
+            (entry.repo && samePluginId(entry.repo.split('/').pop(), id))
+            || samePluginId(entry.id, id)
+            || (tail && samePluginId(entry.repo?.split('/').pop(), tail))
+        ) || null
+    }
+
+    function descriptionFor(id, repo) {
+        return descriptionEntryFor(id, repo)?.description || ''
+    }
+
+    async function loadDescriptions() {
+        if (state.descriptionsLoaded) return
+        try {
+            const data = await rest('pluginsOptimizer_descriptions')
+            state.descriptions = data?.descriptions && typeof data.descriptions === 'object' ? data.descriptions : {}
+        } catch {}
+        state.descriptionsLoaded = true
+    }
+
+    async function cachePluginDescription(id, meta) {
+        const repo = meta?.repo || ''
+        let description = descriptionFor(id, repo) || meta?.description || ''
+        let version = meta?.version ?? null
+        const author = String(meta?.author || repo.split('/')[0] || '').trim()
+        const source = meta?.row ? 'plugin' : 'online'
+        if (repo && !description) {
+            try {
+                const online = await rest('pluginsOptimizer_onlinePlugin', { repo, id }, { timeout: 30000 })
+                if (online?.ok && online.plugin) {
+                    description = online.plugin.description || description
+                    version = online.plugin.version ?? version
+                }
+            } catch {}
+        }
+        if (!description && !repo) return
+        try {
+            await rest('pluginsOptimizer_saveDescriptions', {
+                entries: [{ id, repo, author, description, version, source }],
+            })
+            state.descriptions[id] = { id, repo, author, description, version, source }
+            if (repo) state.descriptions[repo] = state.descriptions[id]
+            renderTree()
+        } catch {}
+    }
+
     function treeMeta(id) {
         const row = state.installed.get(id)
         const allMeta = state.tree?.pluginMeta || {}
         const meta = allMeta[id]
             || Object.entries(allMeta).find(([key]) => samePluginId(key, id))?.[1]
             || {}
-        const repo = row?.repo || meta.repo || ''
+        const knownRepo = row?.repo || meta.repo || ''
+        const entry = descriptionEntryFor(id, knownRepo)
+        const repo = knownRepo || entry?.repo || ''
         const hug3o = meta.hug3o === true || /^Hug3O\//i.test(repo)
-        return { row, meta, repo, hug3o }
+        const description = row?.description || meta.description || entry?.description || ''
+        const author = String(meta.author || entry?.author || repo.split('/')[0] || '').trim()
+        return { row, meta, repo, author, hug3o, description }
     }
 
     function treePluginIds() {
@@ -2343,7 +2485,7 @@
     }
 
     async function resetTreeLayout() {
-        if (!confirm('Reset all custom positions to the HFS3 sequence? Siblings closer to their parent will be ordered first.')) return
+        if (!(await uiConfirm('Reset all custom positions to the HFS3 sequence? Siblings closer to their parent will be ordered first.', 'Reset layout'))) return
         try {
             await withTreeLock(async () => {
                 // Preserve the complete current tree, including every custom
@@ -2381,7 +2523,7 @@
     }
 
     async function freezeTreeLayout() {
-        if (!confirm('Overwrite public/tree.default.json with the current storage tree and every visible layout coordinate?')) return
+        if (!(await uiConfirm('Overwrite public/tree.default.json with the current storage tree and every visible layout coordinate?', 'Save default'))) return
         try {
             await withTreeLock(async () => {
                 const count = captureCurrentLayoutPositions()
@@ -3136,6 +3278,7 @@
         const panel = state.settingsPanels.get(id)
         if (!panel) return
         state.settingsPanels.delete(id)
+        try { panel.fitObserver?.disconnect() } catch {}
         panel.el.remove()
         renderTree()
         queueUiSave()
@@ -3154,11 +3297,18 @@
         head.className = 'skill-inline-head'
         const title = document.createElement('strong')
         title.textContent = 'Settings | ' + id
+        const save = document.createElement('button')
+        save.type = 'button'
+        save.className = 'skill-inline-save'
+        save.textContent = 'Save'
+        save.title = 'Save quick settings'
+        save.hidden = true
+        save.disabled = true
         const close = document.createElement('button')
         close.type = 'button'
         close.textContent = '\u00d7'
         close.title = 'Close settings'
-        head.append(title, close)
+        head.append(title, save, close)
         const body = document.createElement('div')
         body.className = 'skill-inline-body'
         body.innerHTML = '<div class="skill-settings-loading">Loading...</div>'
@@ -3170,8 +3320,39 @@
         const initialHeight = Number.isFinite(savedHeight)
             ? Math.max(120, Math.min(500, Math.round(savedHeight)))
             : 260
-        const panel = { id, el, head, body, height: initialHeight }
+        const panel = {
+            id, el, head, body, resizer, save, height: initialHeight,
+            hasSavedHeight: Number.isFinite(savedHeight),
+            fitPending: false,
+        }
         el.style.height = panel.height + 'px'
+        const fitPanel = () => {
+            if (!panel.el.isConnected) return
+            const previousHeight = panel.el.style.height
+            panel.el.style.height = 'auto'
+            const contentHeight = panel.body.scrollHeight
+            panel.el.style.height = previousHeight
+            const headHeight = panel.head.offsetHeight || 0
+            const resizerHeight = panel.resizer?.offsetHeight || 10
+            const needed = Math.max(120, Math.min(500, Math.ceil(headHeight + resizerHeight + contentHeight + 2)))
+            if (!panel.hasSavedHeight || needed > panel.height) {
+                panel.height = needed
+                panel.el.style.height = needed + 'px'
+                state.ui.settingsHeights[id] = needed
+                queueUiSave()
+            }
+        }
+        const scheduleFit = () => {
+            if (panel.fitPending) return
+            panel.fitPending = true
+            requestAnimationFrame(() => {
+                panel.fitPending = false
+                fitPanel()
+            })
+        }
+        panel.fitObserver = new MutationObserver(scheduleFit)
+        panel.fitObserver.observe(body, { childList: true, subtree: true })
+        requestAnimationFrame(scheduleFit)
         close.addEventListener('click', ev => {
             ev.stopPropagation()
             closeInlineSettings(id)
@@ -3191,6 +3372,7 @@
             const up = () => {
                 window.removeEventListener('pointermove', move)
                 window.removeEventListener('pointerup', up)
+                panel.hasSavedHeight = true
                 state.ui.settingsHeights[id] = panel.height
                 queueUiSave()
                 renderTree()
@@ -3242,25 +3424,166 @@
         queueUiSave()
         const row = state.installed.get(id)
         const canonical = row?.id || id
-        const fields = row?.config && typeof row.config === 'object' ? row.config : {}
+        const meta = treeMeta(id)
+        let description = meta.description || ''
+        let version = row?.version ?? null
+        let onlineFields = {}
+
+        if (!row) {
+            panel.body.textContent = 'Loading plugin.js from the repository...'
+            if (meta.repo) {
+                try {
+                    const online = await rest('pluginsOptimizer_onlinePlugin', { repo: meta.repo, id }, { timeout: 30000 })
+                    if (online?.ok && online.plugin) {
+                        description = online.plugin.description || description
+                        version = online.plugin.version ?? version
+                        onlineFields = online.plugin.fields && typeof online.plugin.fields === 'object' ? online.plugin.fields : {}
+                        state.descriptions[id] = {
+                            id, repo: meta.repo, description, version, updatedAt: Date.now(),
+                        }
+                        state.descriptions[meta.repo] = state.descriptions[id]
+                        await rest('pluginsOptimizer_saveDescriptions', {
+                            entries: [{ id, repo: meta.repo, description, version }],
+                        }).catch(() => {})
+                        renderTree()
+                    }
+                } catch {}
+            }
+            if (state.settingsPanels.get(id) !== panel) return
+            panel.body.textContent = ''
+            const hasOnlineFields = Object.keys(onlineFields).length > 0
+            if (hasOnlineFields) {
+                const values = {}
+                for (const [key, field] of Object.entries(onlineFields)) {
+                    if (field?.defaultValue !== undefined) values[key] = field.defaultValue
+                }
+                renderConfigForm(id, null, onlineFields, values, panel)
+                for (const input of panel.body.querySelectorAll('input,select,textarea')) input.disabled = true
+                const note = document.createElement('div')
+                note.className = 'skill-settings-empty skill-settings-online'
+                const head = document.createElement('strong')
+                head.textContent = 'Online settings preview (not installed)'
+                note.appendChild(head)
+                if (description) {
+                    const text = document.createElement('p')
+                    text.textContent = description
+                    note.appendChild(text)
+                }
+                const repo = document.createElement('small')
+                repo.textContent = 'Repo: ' + (meta.repo || 'unknown')
+                    + (version != null ? ' | v' + version : '')
+                note.appendChild(repo)
+                panel.body.insertBefore(note, panel.body.firstChild)
+                const install = document.createElement('button')
+                install.type = 'button'
+                install.className = 'opt-btn opt-primary skill-settings-start'
+                install.textContent = meta.repo ? 'Install plugin' : 'No repository metadata'
+                install.disabled = !meta.repo
+                install.addEventListener('click', async ev => {
+                    ev.stopPropagation()
+                    if (!meta.repo) return
+                    install.disabled = true
+                    install.textContent = 'Installing...'
+                    await installTreePlugin(id, meta.repo)
+                    closeInlineSettings(id)
+                    setTimeout(() => openTreeSettings(id), 1200)
+                })
+                panel.body.appendChild(install)
+                return
+            }
+            const note = document.createElement('div')
+            note.className = 'skill-settings-empty skill-settings-online'
+            const head = document.createElement('strong')
+            head.textContent = description ? 'Online plugin description' : 'Online plugin information unavailable'
+            note.appendChild(head)
+            if (description) {
+                const text = document.createElement('p')
+                text.textContent = description
+                note.appendChild(text)
+            }
+            if (meta.repo) {
+                const repo = document.createElement('small')
+                repo.textContent = 'Repo: ' + meta.repo + (version != null ? ' | v' + version : '')
+                note.appendChild(repo)
+            }
+            const install = document.createElement('button')
+            install.type = 'button'
+            install.className = 'opt-btn opt-primary skill-settings-start'
+            install.textContent = meta.repo ? 'Install plugin' : 'No repository metadata'
+            install.disabled = !meta.repo
+            install.addEventListener('click', async ev => {
+                ev.stopPropagation()
+                if (!meta.repo) return
+                install.disabled = true
+                install.textContent = 'Installing...'
+                await installTreePlugin(id, meta.repo)
+                closeInlineSettings(id)
+                setTimeout(() => openTreeSettings(id), 1200)
+            })
+            note.appendChild(install)
+            panel.body.appendChild(note)
+            return
+        }
+
+        const fields = row.config && typeof row.config === 'object' ? row.config : {}
         let values = {}
         let fetchError = null
-        if (row) {
-            try {
-                const data = await apiCall('get_plugin', { id: canonical })
-                values = data?.config || {}
-            } catch (e) { fetchError = e }
-        }
+        try {
+            const data = await apiCall('get_plugin', { id: canonical })
+            values = data?.config || {}
+        } catch (e) { fetchError = e }
         if (state.settingsPanels.get(id) !== panel) return
-        renderConfigForm(canonical, row, fields, values, panel)
         const hasFields = Object.keys(fields).length > 0
-        if (!row || (!hasFields && !row.started) || (fetchError && !hasFields)) {
+        if (hasFields) {
+            renderConfigForm(canonical, row, fields, values, panel)
+            if (meta.repo) {
+                const repo = document.createElement('div')
+                repo.className = 'skill-settings-repo'
+                repo.textContent = 'Repo: ' + meta.repo
+                panel.body.insertBefore(repo, panel.body.firstChild)
+            }
+            if (fetchError) {
+                const note = document.createElement('div')
+                note.className = 'skill-settings-empty'
+                note.textContent = 'Could not refresh saved values: ' + (fetchError.message || 'unknown error')
+                panel.body.insertBefore(note, panel.body.firstChild)
+            }
+            return
+        }
+
+        if (meta.repo) {
+            try {
+                const online = await rest('pluginsOptimizer_onlinePlugin', { repo: meta.repo, id: canonical }, { timeout: 30000 })
+                if (online?.ok && online.plugin) {
+                    description = online.plugin.description || description
+                    version = online.plugin.version ?? version
+                    onlineFields = online.plugin.fields && typeof online.plugin.fields === 'object' ? online.plugin.fields : {}
+                }
+            } catch {}
+        }
+
+        if (Object.keys(onlineFields).length) {
+            Object.assign(fields, onlineFields)
+            for (const [key, field] of Object.entries(fields)) {
+                if (values[key] === undefined && field?.defaultValue !== undefined) values[key] = field.defaultValue
+            }
+            renderConfigForm(canonical, row, fields, values, panel)
             const note = document.createElement('div')
-            note.className = 'skill-settings-empty'
-            if (!row) {
-                note.textContent = 'Plugin is not installed. Install it to edit settings.'
-            } else if (!hasFields && !row.started) {
-                note.textContent = 'Plugin is not loaded. Start it to load its settings.'
+            note.className = 'skill-settings-empty skill-settings-online'
+            const head = document.createElement('strong')
+            head.textContent = row.started
+                ? 'Settings loaded from plugin.js'
+                : 'Preview loaded from plugin.js (plugin not started)'
+            note.appendChild(head)
+            if (description) {
+                const text = document.createElement('p')
+                text.textContent = description
+                note.appendChild(text)
+            }
+            const repo = document.createElement('small')
+            repo.textContent = 'Repo: ' + meta.repo + (version != null ? ' | v' + version : '')
+            note.appendChild(repo)
+            if (!row.started) {
                 const start = document.createElement('button')
                 start.type = 'button'
                 start.className = 'opt-btn opt-primary skill-settings-start'
@@ -3273,19 +3596,52 @@
                     setTimeout(() => openTreeSettings(id), 1200)
                 })
                 note.appendChild(start)
-            } else {
-                note.textContent = 'Could not load settings: ' + (fetchError?.message || 'unknown error')
             }
             panel.body.insertBefore(note, panel.body.firstChild)
+            return
         }
+
+        panel.body.textContent = ''
+        const note = document.createElement('div')
+        note.className = 'skill-settings-empty skill-settings-online'
+        if (!row.started) {
+            const head = document.createElement('strong')
+            head.textContent = 'Plugin is installed but not loaded'
+            note.appendChild(head)
+            if (description) {
+                const text = document.createElement('p')
+                text.textContent = description
+                note.appendChild(text)
+            }
+            const start = document.createElement('button')
+            start.type = 'button'
+            start.className = 'opt-btn opt-primary skill-settings-start'
+            start.textContent = 'Start plugin'
+            start.addEventListener('click', async ev => {
+                ev.stopPropagation()
+                start.disabled = true
+                await togglePluginPower(canonical, false)
+                closeInlineSettings(id)
+                setTimeout(() => openTreeSettings(id), 1200)
+            })
+            note.appendChild(start)
+        } else {
+            note.textContent = 'No quick settings were declared by this plugin.'
+            if (description) {
+                const text = document.createElement('p')
+                text.textContent = description
+                note.appendChild(text)
+            }
+        }
+        if (state.settingsPanels.get(id) === panel) panel.body.appendChild(note)
     }
 
     function makePluginNode(item) {
-        const { row, repo, hug3o } = treeMeta(item.id)
+        const { row, repo, hug3o, description: storedDescription } = treeMeta(item.id)
         const installed = !!row
         const running = !!row?.started
         const version = row?.version != null ? row.version : '-'
-        const description = row?.description || (hug3o ? 'Hug3O plugin (not installed)' : '')
+        const description = storedDescription || (hug3o ? 'Hug3O plugin (not installed)' : '')
         const el = document.createElement('div')
         el.className = 'skill-node skill-plugin' + (installed ? (running ? ' running' : ' stopped') : ' missing') + (hug3o ? ' hug3o' : '')
         el.dataset.key = item.key
@@ -3354,7 +3710,6 @@
         gear.innerHTML = treeIcon('settings', 15)
         gear.title = 'Preview settings'
         gear.addEventListener('click', ev => { ev.stopPropagation(); toggleInlineSettings(item.id) })
-        actions.appendChild(gear)
         if (installed) {
             const del = document.createElement('button')
             del.type = 'button'
@@ -3364,6 +3719,7 @@
             del.addEventListener('click', ev => { ev.stopPropagation(); uninstallTreePlugin(item.id) })
             actions.appendChild(del)
         }
+        actions.appendChild(gear)
         const grip = document.createElement('span')
         grip.className = 'skill-drag-handle'
         grip.title = 'Drag'
@@ -3873,6 +4229,8 @@
         if (!modal) return
         const msg = modal.querySelector('[data-skill-confirm-text]')
         const ok = modal.querySelector('[data-skill-confirm-ok]')
+        const box = modal.querySelector('.skill-confirm-box')
+        paintConfirmSurface(modal, box || modal)
         if (msg) msg.textContent = text
         if (ok) ok.textContent = okLabel || 'Confirm'
         state.confirmAction = action || null
@@ -3909,13 +4267,14 @@
         saveTreeNow()
         renderTree()
         refreshHiddenVisibility()
+        cachePluginDescription(canonical, meta).catch(() => {})
         scheduleTreeRefresh(500)
         toast('Starred: ' + canonical + ' | included in Save default')
     }
 
     async function uninstallTreePlugin(id) {
         const canonical = state.installed.get(id)?.id || id
-        if (!confirm('Uninstall ' + canonical + ' and delete its plugin config?')) return
+        if (!(await uiConfirm('Uninstall ' + canonical + ' and delete its plugin config?', 'Uninstall'))) return
         try {
             await apiCall('uninstall_plugin', { id: canonical, deleteConfig: true }, { timeout: 60000 })
             toast('Uninstalled ' + canonical)
@@ -3992,6 +4351,13 @@
             await apiCall('start_plugin', { id: installedId }, { timeout: 30000 })
             toast('Installed ' + id)
             await refreshTreeInstalled({ id: installedId, started: true })
+            const installedRow = state.installed.get(installedId)
+            cachePluginDescription(installedId, {
+                row: installedRow,
+                repo: installedRow?.repo || repo,
+                description: installedRow?.description || '',
+                version: installedRow?.version ?? null,
+            }).catch(() => {})
             scheduleTreeRefresh(900)
         } catch (e) { toast('Install failed: ' + e.message, 'error') }
     }
@@ -4102,7 +4468,7 @@
     }
 
     async function restoreLatestTreeLayout() {
-        if (!confirm('Restore the latest saved layout (Save default or before the last Reset)? This overwrites current storage.')) return
+        if (!(await uiConfirm('Restore the latest saved layout (Save default or before the last Reset)? This overwrites current storage.', 'Restore'))) return
         try {
             await withTreeLock(async () => {
                 const r = await rest('pluginsOptimizer_restoreLatest')
@@ -4117,7 +4483,7 @@
     }
 
     async function restoreTreeBeforeReset() {
-        if (!confirm('Restore the tree and all layout positions saved before the last Reset? This overwrites current storage.')) return
+        if (!(await uiConfirm('Restore the tree and all layout positions saved before the last Reset? This overwrites current storage.', 'Restore'))) return
         try {
             await withTreeLock(async () => {
                 const r = await rest('pluginsOptimizer_restoreBeforeReset')
@@ -4134,7 +4500,7 @@
     async function restoreLocalTreeSnapshot() {
         const backup = readTreeBackup()
         if (!backup?.tree) { toast('No local tree snapshot found', 'error'); return }
-        if (!confirm('Restore the last tree snapshot saved by this browser? This overwrites current storage.')) return
+        if (!(await uiConfirm('Restore the last tree snapshot saved by this browser? This overwrites current storage.', 'Restore'))) return
         try {
             await withTreeLock(async () => {
                 state.tree = normalizeTree(backup.tree)
@@ -4222,8 +4588,8 @@
         menu.style.top = Math.min(pr.height - 20, ar.bottom - pr.top + 4) + 'px'
     }
 
-    function addTreeTrunk() {
-        const label = prompt('New trunk name', 'New Trunk')
+    async function addTreeTrunk() {
+        const label = await uiPrompt('New trunk name', 'New Trunk')
         if (!label || !label.trim()) return
         state.tree.roots.push({ id: treeNewId('trunk'), label: label.trim() })
         saveTreeNow()
@@ -4231,8 +4597,8 @@
         scheduleTreeRefresh(500)
     }
 
-    function addTreeMain(rootId) {
-        const label = prompt('New branch name', 'New Branch')
+    async function addTreeMain(rootId) {
+        const label = await uiPrompt('New branch name', 'New Branch')
         if (!label || !label.trim()) return
         const orders = (state.tree.mains || []).filter(m => m.root === rootId).map(m => Number(m.order) || 0)
         state.tree.mains.push({
@@ -4247,8 +4613,8 @@
         scheduleTreeRefresh(500)
     }
 
-    function addTreeCategory(mainId, parentId = null) {
-        const label = prompt('New category name', 'New Category')
+    async function addTreeCategory(mainId, parentId = null) {
+        const label = await uiPrompt('New category name', 'New Category')
         if (!label || !label.trim()) return
         state.tree.categories.push({
             id: treeNewId('cat'),
@@ -4262,13 +4628,13 @@
         scheduleTreeRefresh(500)
     }
 
-    function renameTreeBranch(item) {
+    async function renameTreeBranch(item) {
         let node
         if (item.type === 'root') node = state.tree.roots.find(x => x.id === item.id)
         else if (item.type === 'main') node = state.tree.mains.find(x => x.id === item.id)
         else node = state.tree.categories.find(x => x.id === item.id)
         if (!node) return
-        const label = prompt('Rename', node.label || '')
+        const label = await uiPrompt('Rename', node.label || '')
         if (!label || !label.trim()) return
         node.label = label.trim()
         saveTreeNow()
@@ -4276,8 +4642,8 @@
         scheduleTreeRefresh(500)
     }
 
-    function deleteTreeBranch(item) {
-        if (!confirm(`Delete ${item.label || item.id}? Plugins inside will move to Unarranged.`)) return
+    async function deleteTreeBranch(item) {
+        if (!(await uiConfirm(`Delete ${item.label || item.id}? Plugins inside will move to Unarranged.`, 'Delete'))) return
         const positions = state.tree.positions || (state.tree.positions = {})
         if (item.type === 'root') {
             const mains = state.tree.mains.filter(m => m.root === item.id)
@@ -4510,28 +4876,45 @@
             empty.textContent = 'No quick settings'
             body.appendChild(empty)
         }
-        if (row) {
-            const save = document.createElement('button')
-            save.type = 'button'
-            save.className = 'opt-btn opt-primary skill-settings-save'
-            save.textContent = 'Save quick settings'
-            save.addEventListener('click', async ev => {
-                ev.stopPropagation()
-                const config = {}
-                if (tabKey) config.config_tab = values.config_tab
-                for (const input of body.querySelectorAll('[data-key]')) {
-                    const key = input.dataset.key
-                    config[key] = input.type === 'checkbox' ? input.checked
-                        : input.type === 'number' ? Number(input.value)
-                        : input.value
-                }
-                try {
-                    await apiCall('set_plugin', { id, config })
-                    toast('Settings saved: ' + id)
-                    scheduleTreeRefresh(500)
-                } catch (e) { toast('Save failed: ' + e.message, 'error') }
-            })
-            body.appendChild(save)
+        const saveBtn = panel?.save
+        if (!saveBtn) return
+        if (!row || (!shown && !tabs.length)) {
+            saveBtn.hidden = true
+            saveBtn.disabled = true
+            saveBtn.classList.remove('dirty')
+            return
+        }
+        const readConfig = () => {
+            const config = {}
+            if (tabKey) config.config_tab = values.config_tab
+            for (const input of body.querySelectorAll('[data-key]')) {
+                const key = input.dataset.key
+                config[key] = input.type === 'checkbox' ? input.checked
+                    : input.type === 'number' ? Number(input.value)
+                    : input.value
+            }
+            return config
+        }
+        const initial = JSON.stringify(readConfig())
+        const markDirty = () => {
+            const dirty = JSON.stringify(readConfig()) !== initial
+            saveBtn.classList.toggle('dirty', dirty)
+            saveBtn.disabled = !dirty
+        }
+        saveBtn.hidden = false
+        saveBtn.disabled = true
+        saveBtn.classList.remove('dirty')
+        body.oninput = markDirty
+        body.onchange = markDirty
+        saveBtn.onclick = async ev => {
+            ev.stopPropagation()
+            try {
+                await apiCall('set_plugin', { id, config: readConfig() })
+                toast('Settings saved: ' + id)
+                saveBtn.classList.remove('dirty')
+                saveBtn.disabled = true
+                scheduleTreeRefresh(500)
+            } catch (e) { toast('Save failed: ' + e.message, 'error') }
         }
     }
 
@@ -4576,6 +4959,7 @@
         if (!panel || !state.tree) return
         const tray = panel.querySelector('[data-skill-tray]')
         const count = panel.querySelector('[data-skill-tray-count]')
+        const trayWrap = panel.querySelector('.skill-tray')
         if (!tray) return
         const inTree = treePluginIds()
         const stars = Array.isArray(state.tree.stars) ? state.tree.stars : []
@@ -4583,9 +4967,13 @@
         const starredMissing = stars.filter(id => !state.installed.has(id) && !inTree.has(id))
         const listed = [...unlisted, ...starredMissing]
         if (count) count.textContent = String(listed.length)
+        if (trayWrap) {
+            trayWrap.hidden = false
+            trayWrap.classList.toggle('empty', listed.length === 0)
+        }
         tray.innerHTML = ''
         if (!listed.length) {
-            tray.innerHTML = '<span class="skill-tray-empty">All installed plugins are arranged in the tree.</span>'
+            tray.innerHTML = '<span class="skill-tray-empty">Drag plugins here to unarrange them.</span>'
             return
         }
         for (const id of listed) {
@@ -4707,10 +5095,15 @@
             .opt-muted { opacity: .55; font-size: .76rem; }
             .opt-footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(127,127,127,.25); }
             .opt-save-result { font-size: .76rem; opacity: .75; }
-            #optimizer-toast-host { position: fixed; right: 16px; bottom: 16px; z-index: 100000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
-            .opt-toast { pointer-events: auto; background: #2b2b2b; color: #fff; border: 1px solid rgba(255,255,255,.18); border-left: 4px solid #ff9800; border-radius: 6px; padding: 9px 13px; font-size: .82rem; box-shadow: 0 6px 20px rgba(0,0,0,.35); max-width: min(460px, 80vw); transition: opacity .2s, transform .2s; }
+            #optimizer-toast-host { position: fixed; right: 16px; top: 70px; bottom: auto; z-index: 100000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+            .opt-toast { pointer-events: auto; background: color-mix(in srgb, var(--active-bg, #1e1e1e) 82%, #000); color: var(--active-text, #eee) !important; border: 1px solid rgba(255,255,255,.14); border-left: 4px solid #ff9800; border-radius: 6px; padding: 9px 13px; font-size: .82rem; box-shadow: 0 6px 20px rgba(0,0,0,.35); max-width: min(460px, 80vw); transition: opacity .2s, transform .2s; }
             .opt-toast-error { border-left-color: #ef5350; }
-            .opt-toast-out { opacity: 0; transform: translateY(6px); }
+            .opt-toast-out { opacity: 0; transform: translateY(-6px); }
+            .opt-confirm { position: fixed; inset: 0; z-index: 100001; display: flex; align-items: center; justify-content: center; padding: 20px; background: transparent !important; pointer-events: none; }
+            .opt-confirm-box { width: min(420px, 92vw); padding: 14px 16px; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.6)); border-radius: 6px; background: #1e1e1e; color: var(--active-text, #eee) !important; box-shadow: 0 10px 30px rgba(0,0,0,.5); pointer-events: auto; }
+            .opt-confirm-text { font-size: .86rem; line-height: 1.45; white-space: pre-wrap; }
+            .opt-confirm-input { box-sizing: border-box; width: 100%; margin-top: 10px; padding: 6px 8px; font: inherit; font-size: .82rem; color: var(--active-text, #f0f0f0) !important; background: var(--active-button-bg, #2a2a2a) !important; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.5)); border-radius: 3px; }
+            .opt-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
             /* The optional AdminThemeCustomizer plugin paints every element with
                background/color !important. Keep the Optimizer controls readable. */
             #optimizer-panel .opt-primary { background-color: #ff9900 !important; border-color: #ff9900 !important; color: #171717 !important; }
@@ -4718,7 +5111,7 @@
             #optimizer-panel .opt-test-result.opt-ok { color: #4caf50 !important; }
             #optimizer-panel .opt-test-result.opt-fail { color: #ef5350 !important; }
             #optimizer-panel .opt-chip-x:hover { color: #ef5350 !important; }
-            #optimizer-toast-host .opt-toast { background-color: #2b2b2b !important; color: #fff !important; border-color: rgba(255,255,255,.18) !important; }
+            #optimizer-toast-host .opt-toast { background-color: color-mix(in srgb, var(--active-bg, #1e1e1e) 82%, #000) !important; color: var(--active-text, #eee) !important; border-color: rgba(255,255,255,.14) !important; }
             #optimizer-toast-host .opt-toast-error { border-left-color: #ef5350 !important; }
             #optimizer-hide-toggle .opt-badge { background-color: #ff9900 !important; color: #171717 !important; }
             #optimizer-hide-toggle.opt-active { color: #ff9800 !important; }
@@ -4873,9 +5266,9 @@
             .skill-settings::-webkit-scrollbar { width: 8px; height: 8px; }
             .skill-settings::-webkit-scrollbar-track { background: #222; }
             .skill-settings::-webkit-scrollbar-thumb { background: #777; border-radius: 4px; }
-            .skill-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0; font-size: .86rem; }
-            .skill-field > span { min-width: 100px; color: var(--active-text, #ddd) !important; }
-            .skill-field input[type="text"], .skill-field input[type="number"], .skill-field input[type="password"], .skill-field select { width: 160px; padding: 3px 5px; font: inherit; font-size: .8rem; color: var(--active-text, #f0f0f0) !important; background-color: var(--active-button-bg, #2a2a2a) !important; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.5)); border-radius: 3px; }
+            .skill-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 23px; margin: 3px 0; font-size: .78rem; }
+            .skill-field > span { min-width: 0; color: var(--active-text, #ddd) !important; line-height: 1.3; }
+            .skill-field input[type="text"], .skill-field input[type="number"], .skill-field input[type="password"], .skill-field select { width: 148px; padding: 3px 5px; font: inherit; font-size: .75rem; color: var(--active-text, #f0f0f0) !important; background-color: var(--active-button-bg, #2a2a2a) !important; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.5)); border-radius: 3px; }
             .skill-field input[type="checkbox"],
             #optimizer-panel input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; margin: 0 6px 0 0; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.6)); border-radius: 3px; background-color: var(--active-bg, #1e1e1e) !important; display: inline-grid; place-content: center; vertical-align: middle; cursor: pointer; accent-color: #ff9800; }
             .skill-field input[type="checkbox"]:checked,
@@ -4886,15 +5279,24 @@
             #optimizer-panel input[type="checkbox"]:focus-visible { outline: 2px solid #ff9800; outline-offset: 2px; }
             .skill-settings-save { margin-top: 6px; width: 100%; }
             .skill-settings-start { display: block; margin-top: 8px; }
-            .skill-settings-loading, .skill-settings-empty { font-size: .8rem; color: #bbb !important; padding: 4px; }
-            .skill-field-block { margin: 5px 0; }
-            .skill-field-help { margin: 2px 0 0; font-size: .72rem; line-height: 1.35; color: var(--active-comment-contrast, #aaa) !important; opacity: .9; }
-            .skill-settings-tab-block { margin: 6px 0 8px; }
-            .skill-settings-tab-label { font-size: .8rem; font-weight: 600; margin-bottom: 2px; }
-            .skill-settings-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
-            .skill-settings-tab { padding: 3px 7px; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.45)); border-radius: 3px; background: transparent; color: var(--active-text, #ddd) !important; font: inherit; font-size: .76rem; cursor: pointer; }
+            .skill-settings-loading, .skill-settings-empty { font-size: .76rem; color: #bbb !important; padding: 4px; }
+            .skill-settings-online { display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }
+            .skill-settings-online strong { color: var(--active-text, #eee) !important; font-size: .8rem; }
+            .skill-settings-online p { margin: 0; line-height: 1.38; color: var(--active-text, #eee) !important; opacity: .9; }
+            .skill-settings-online small { opacity: .65; word-break: break-all; font-size: .7rem; }
+            .skill-settings-repo { margin: 0 0 5px; font-size: .7rem; color: var(--active-comment-contrast, #aaa) !important; opacity: .75; word-break: break-all; }
+            .skill-field-block { margin: 4px 0; }
+            .skill-field-help { margin: 2px 0 0; font-size: .68rem; line-height: 1.32; color: var(--active-comment-contrast, #aaa) !important; opacity: .9; }
+            .skill-settings-tab-block { margin: 5px 0 7px; }
+            .skill-settings-tab-label { font-size: .76rem; font-weight: 600; margin-bottom: 2px; }
+            .skill-settings-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+            .skill-settings-tab { padding: 3px 7px; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.45)); border-radius: 3px; background: transparent; color: var(--active-text, #ddd) !important; font: inherit; font-size: .72rem; cursor: pointer; }
             .skill-settings-tab.active { border-color: var(--active-focus-color, #ff9800) !important; color: var(--active-text-high-contrast, #f0c27b) !important; background-color: var(--active-mild-contrast, rgba(255,153,0,.12)) !important; }
             .skill-tray { flex: 0 0 auto; width: 100%; max-width: 100%; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 0 2px 1px; border-top: 1px solid rgba(127,127,127,.25); margin-top: 0; overflow: hidden; box-sizing: border-box; }
+            .skill-tray[hidden] { display: none !important; }
+            .skill-tray.empty { min-height: 36px; padding: 5px 8px; background-color: rgba(127,127,127,.035); }
+            .skill-tray.empty .skill-tray-items { align-items: center; }
+            .skill-tray.empty .skill-tray-head { opacity: .5; }
             .skill-tray.drop-target { background-color: var(--active-mild-contrast, rgba(255,153,0,.12)) !important; }
             .skill-tray-head { flex: 0 0 auto; font-size: .72rem; color: var(--active-comment-contrast, #ccc) !important; white-space: nowrap; }
             .skill-tray-items { display: flex; flex: 1 1 0; gap: 3px; min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding-bottom: 0; min-height: 20px; touch-action: pan-x; overscroll-behavior-x: contain; scrollbar-width: none; }
@@ -4904,7 +5306,7 @@
             .skill-tray-item .skill-icon svg { width: 13px; height: 13px; }
             .skill-tray-item strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .skill-tray-item small { opacity: .65; }
-            .skill-tray-empty { font-size: .76rem; color: #999 !important; }
+            .skill-tray-empty { font-size: .72rem; color: var(--active-comment-contrast, #777) !important; opacity: .5; user-select: none; }
             .skill-desc { position: absolute; z-index: 1000; max-width: 340px; max-height: 55vh; overflow: auto; padding: 24px 10px 8px; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.6)); border-radius: 4px; background-color: var(--active-bg, #1e1e1e) !important; color: var(--active-text, #eee) !important; font-size: .82rem; line-height: 1.4; box-shadow: 0 8px 20px rgba(0,0,0,.55); opacity: 1 !important; }
             .skill-desc.pinned { border-color: var(--active-focus-color, #ff9800); }
             .skill-desc[hidden] { display: none !important; }
@@ -4914,11 +5316,14 @@
             .skill-settings-pop[hidden] { display: none !important; }
             .skill-inline-panel { position: absolute; left: 0; width: 100%; z-index: 40; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.6)); border-radius: 4px; background-color: var(--active-bg, #1e1e1e) !important; color: var(--active-text, #eee) !important; box-shadow: 0 6px 16px rgba(0,0,0,.5); }
             .skill-inline-panel[hidden] { display: none !important; }
-            .skill-inline-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 6px; border-bottom: 1px solid var(--active-grid-contrast, rgba(127,127,127,.3)); background-color: var(--active-bg, #1e1e1e) !important; }
-            .skill-inline-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
+            .skill-inline-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-start; gap: 6px; padding: 5px 6px; border-bottom: 1px solid var(--active-grid-contrast, rgba(127,127,127,.3)); background-color: var(--active-bg, #1e1e1e) !important; }
+            .skill-inline-head strong { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
             .skill-inline-head button { flex: 0 0 auto; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--active-comment-contrast, #aaa) !important; cursor: pointer; font-size: 16px; line-height: 1; }
             .skill-inline-head button:hover { background-color: var(--active-mild-contrast, rgba(127,127,127,.16)) !important; color: var(--active-text, #fff) !important; }
-            .skill-inline-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 6px 8px; font-size: .8rem; line-height: 1.4; touch-action: pan-y; }
+            .skill-inline-head .skill-inline-save { width: auto !important; min-width: 44px; height: 22px; margin-left: auto; padding: 0 8px !important; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.45)) !important; border-radius: 3px; font-size: .68rem !important; line-height: 20px !important; opacity: .35; }
+            .skill-inline-head .skill-inline-save.dirty { opacity: 1; color: var(--active-focus-color, #ff9800) !important; border-color: var(--active-focus-color, #ff9800) !important; }
+            .skill-inline-head .skill-inline-save:disabled { cursor: default; }
+            .skill-inline-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 5px 7px; font-size: .76rem; line-height: 1.38; touch-action: pan-y; }
             .skill-inline-resizer { position: relative; flex: 0 0 10px; cursor: ns-resize; touch-action: none; background: linear-gradient(to bottom, transparent, var(--active-mild-contrast, rgba(127,127,127,.18))); border-top: 1px solid var(--active-grid-contrast, rgba(127,127,127,.3)); }
             .skill-inline-resizer::after { content: ''; position: absolute; right: 5px; bottom: 2px; width: 18px; height: 7px; border-right: 2px solid var(--active-text, #ff9800); border-bottom: 2px solid var(--active-text, #ff9800); opacity: .8; pointer-events: none; }
             .skill-settings-pop.inline { position: absolute !important; left: 0 !important; top: 56px !important; width: 100% !important; max-width: 100%; height: auto; max-height: 320px; z-index: 40; padding: 0 8px 8px; border-radius: 4px; box-shadow: 0 6px 16px rgba(0,0,0,.45); }
@@ -4933,7 +5338,8 @@
             .skill-tray-item.stopped { opacity: 1; filter: grayscale(1) brightness(.82); }
             .skill-tray-item.stopped > *,
             .skill-tray-item.missing.starred > * { opacity: .7; }
-            .skill-confirm { position: absolute; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0,0,0,.55); box-sizing: border-box; }
+            .skill-confirm { position: absolute; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; background: transparent !important; box-sizing: border-box; pointer-events: none; }
+            .skill-confirm > .skill-confirm-box { pointer-events: auto; }
             .skill-confirm[hidden] { display: none !important; }
             .skill-confirm-box { width: min(360px, 100%); padding: 14px; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.6)); border-radius: 6px; background-color: var(--active-bg, #1e1e1e) !important; color: var(--active-text, #eee) !important; box-shadow: 0 12px 30px rgba(0,0,0,.65); }
             .skill-confirm-text { margin-bottom: 12px; font-size: .9rem; line-height: 1.4; }
@@ -4949,7 +5355,7 @@
             .skill-panel .skill-branch-card strong { color: var(--active-text-high-contrast, #f0c27b) !important; }
             .skill-panel .skill-settings { background-color: var(--active-bg, #1e1e1e) !important; }
             .skill-panel .skill-settings-pop, .skill-panel .skill-confirm-box, .skill-panel .skill-inline-panel { background-color: var(--active-bg, #1e1e1e) !important; color: var(--active-text, #eee) !important; }
-            .skill-panel .skill-confirm { background-color: rgba(0,0,0,.55) !important; }
+            .skill-panel .skill-confirm { background-color: transparent !important; }
             .skill-panel .skill-field > span { color: var(--active-text, #ddd) !important; }
             .skill-panel .skill-field input[type="text"], .skill-panel .skill-field input[type="number"], .skill-panel .skill-field input[type="password"], .skill-panel .skill-field select { background-color: var(--active-button-bg, #2a2a2a) !important; color: var(--active-text, #f0f0f0) !important; }
             .skill-panel .skill-tray-item { background-color: var(--active-button-bg, #1b1b1b) !important; color: var(--active-text, #e0e0e0) !important; }

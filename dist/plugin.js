@@ -8,12 +8,34 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 22.9
+exports.version = 25.1
 exports.apiRequired = 12.7
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "Hug3O/Plugins-Optimizer"
 exports.preview = []
 exports.changelog = [
+    { version: 25.1, message: "Render the empty Unarranged label and hint at 50% opacity." },
+    { version: 25, message: "Replace the hidden empty Unarranged tray with a dim drop-zone hint that accepts dragged plugins." },
+    { version: 24.9, message: "Hide the Unarranged tray entirely when no plugins are unarranged." },
+    { version: 24.8, message: "Mount built-in confirm dialogs inside the fullscreen Skill Tree so they remain visible in fullscreen mode." },
+    { version: 24.7, message: "Always show the resolved repo at the top of a plugin's settings form, without displaying the author." },
+    { version: 24.6, message: "Remove author from the settings preview and restore repo display, now also falling back to the repo stored in descriptions." },
+    { version: 24.5, message: "Include repo and author in descriptions.json/descriptions.js and show them in online settings previews." },
+    { version: 24.4, message: "Use a deeper theme-derived confirm surface without a full-page dimming overlay." },
+    { version: 24.3, message: "Force an opaque dark background on every built-in confirmation dialog so theme overrides cannot make it transparent." },
+    { version: 24.2, message: "Move toasts below the top-right toolbar and use a darker shade of the current theme background." },
+    { version: 24.1, message: "Place the destructive/confirm action on the left and Cancel on the right in all built-in dialogs." },
+    { version: 24, message: "Swap Uninstall and settings icon positions, replace all native confirm/prompt dialogs with the built-in dialog, and move toasts to the top-right." },
+    { version: 23.9, message: "Measure settings content with auto height so short panels shrink to their real content instead of staying at 260px." },
+    { version: 23.8, message: "Auto-size inline settings panels to their content (up to 500px) when first opened or when content grows." },
+    { version: 23.7, message: "Slightly reduce settings font sizes and regularize field rows with a two-column grid." },
+    { version: 23.6, message: "Pin the inline Save button directly beside the Close button." },
+    { version: 23.5, message: "Move Save quick settings into the panel header left of Close; keep it translucent/disabled until a field changes." },
+    { version: 23.4, message: "Prefer the installed plugin's local plugin.js when previewing settings, falling back to the remote repo only for missing plugins." },
+    { version: 23.3, message: "Parse and preview plugin config fields from online plugin.js for stopped/uninstalled plugins, so their control panels are not empty." },
+    { version: 23.2, message: "Automatically refresh descriptions.js on plugin install/update, prefer installed plugin descriptions, and use catalog/online descriptions only as missing-plugin fallback." },
+    { version: 23.1, message: "Remove the leftover loading placeholder from stopped plugin settings previews." },
+    { version: 23, message: "Show online plugin.js descriptions for uninstalled/stopped plugins and persist descriptions for starred plugins to storage/descriptions.json plus public/descriptions.js." },
     { version: 22.9, message: "Default the independent VPN proxy and GitHub cache modules to off on fresh installs." },
     { version: 22.8, message: "Remove the Network & cache master and Admin panel switches; keep admin UI always active, split proxy/cache settings, and document HFS outbound_proxy precedence." },
     { version: 22.7, message: "Honor HFS' global outbound_proxy setting for GitHub requests, taking precedence over the plugin's own proxy configuration." },
@@ -375,7 +397,11 @@ exports.init = async api => {
     const TREE_BEFORE_RESET_FILE = path.join(storageDir, 'tree.before-reset.json')
     const TREE_DEFAULT = path.join(path.dirname(storageDir), 'public', 'tree.default.json')
     const UI_STATE_FILE = path.join(storageDir, 'ui.json')
+    const DESCRIPTIONS_FILE = path.join(storageDir, 'descriptions.json')
+    const DESCRIPTIONS_PUBLIC = path.join(path.dirname(storageDir), 'public', 'descriptions.js')
+    const PLUGINS_ROOT = path.dirname(path.dirname(storageDir))
     const STORAGE_VERSION = 1
+    let descriptionsCache = null
     let hiddenCache = []
     let treeCache = null
 
@@ -717,6 +743,104 @@ exports.init = async api => {
             try { await fs.rm(tmp, { force: true }) } catch {}
             throw e
         }
+    }
+
+    function normalizeDescriptionEntry(id, value) {
+        if (!id || !value || typeof value !== 'object') return null
+        const repo = String(value.repo || '').trim()
+        const description = String(value.description || '').trim()
+        if (!repo && !description) return null
+        const author = String(value.author || repo.split('/')[0] || '').trim()
+        return {
+            id: String(value.id || id),
+            repo,
+            author,
+            description,
+            version: value.version ?? null,
+            source: String(value.source || ''),
+            updatedAt: Number(value.updatedAt || Date.now()),
+        }
+    }
+
+    async function loadDescriptions() {
+        if (descriptionsCache) return descriptionsCache
+        const saved = await readJson(DESCRIPTIONS_FILE).catch(() => null)
+        const map = {}
+        if (saved && typeof saved === 'object') {
+            for (const [id, value] of Object.entries(saved)) {
+                const entry = normalizeDescriptionEntry(id, value)
+                if (entry) map[id] = entry
+            }
+        }
+        descriptionsCache = map
+        return map
+    }
+
+    async function saveDescriptions(entries) {
+        const map = { ...(await loadDescriptions()) }
+        for (const raw of entries || []) {
+            if (!raw) continue
+            const id = String(raw.id || raw.repo || '').trim()
+            const entry = normalizeDescriptionEntry(id, raw)
+            if (!entry) continue
+            map[id] = entry
+            if (entry.repo) map[entry.repo] = entry
+        }
+        descriptionsCache = map
+        await writeJson(DESCRIPTIONS_FILE, map)
+        await fs.mkdir(path.dirname(DESCRIPTIONS_PUBLIC), { recursive: true })
+        const script = `// Generated by Plugins-Optimizer\nwindow.PLUGINS_OPTIMIZER_DESCRIPTIONS = ${JSON.stringify(map, null, 2)};\n`
+        const tmp = uniqueTmp(DESCRIPTIONS_PUBLIC)
+        await fs.writeFile(tmp, script, 'utf8')
+        try { await fs.rename(tmp, DESCRIPTIONS_PUBLIC) }
+        catch (e) {
+            try { await fs.rm(tmp, { force: true }) } catch {}
+            throw e
+        }
+        return map
+    }
+
+    async function updateDescriptionsFromCatalog(entries) {
+        const existing = await loadDescriptions()
+        const list = []
+        for (const entry of entries || []) {
+            if (!entry) continue
+            const repo = String(entry.repo || '').trim()
+            const id = String(entry.id || repo).trim()
+            if (!repo && !entry.description) continue
+            const previous = existing[id] || (repo ? existing[repo] : null)
+            // The installed plugin's own description is authoritative.
+            if (previous?.source === 'plugin' && previous.description) continue
+            list.push({
+                id,
+                repo,
+                author: String(entry.author || entry.owner?.login || repo.split('/')[0] || '').trim(),
+                description: entry.description || '',
+                version: entry.version ?? null,
+                source: 'catalog',
+            })
+        }
+        if (list.length) await saveDescriptions(list)
+    }
+
+    async function updateDescriptionFromPlugin(event) {
+        const p = event?.plugin?.getData?.() || event?.plugin || event?.getData?.() || event || {}
+        const id = String(p.id || event?.id || '').trim()
+        if (!id) return
+        const rawRepo = p.repo ?? event?.repo
+        const repo = typeof rawRepo === 'string'
+            ? rawRepo
+            : String(rawRepo?.web || rawRepo?.main || '').replace(/^https?:\/\/github\.com\//i, '').replace(/\/.*$/, '')
+        const description = String(p.description || '').trim()
+        if (!description && !repo) return
+        await saveDescriptions([{
+            id,
+            repo,
+            author: String(p.author || repo.split('/')[0] || '').trim(),
+            description,
+            version: p.version ?? null,
+            source: 'plugin',
+        }])
     }
 
     async function readBody(k) {
@@ -1429,6 +1553,163 @@ exports.init = async api => {
         }
     }
 
+    function scanBalanced(text, start) {
+        let depth = 0
+        let quote = ''
+        let escaped = false
+        let lineComment = false
+        let blockComment = false
+        for (let i = start; i < text.length; i++) {
+            const c = text[i]
+            const n = text[i + 1]
+            if (lineComment) {
+                if (c === '\n') lineComment = false
+                continue
+            }
+            if (blockComment) {
+                if (c === '*' && n === '/') { blockComment = false; i++ }
+                continue
+            }
+            if (quote) {
+                if (escaped) { escaped = false; continue }
+                if (c === '\\') { escaped = true; continue }
+                if (c === quote) quote = ''
+                continue
+            }
+            if (c === '/' && n === '/') { lineComment = true; i++; continue }
+            if (c === '/' && n === '*') { blockComment = true; i++; continue }
+            if (c === "'" || c === '"' || c === '`') { quote = c; continue }
+            if (c === '{') depth++
+            else if (c === '}') {
+                depth--
+                if (depth === 0) return text.slice(start, i + 1)
+            }
+        }
+        return ''
+    }
+
+    function splitTopLevel(text) {
+        const parts = []
+        let start = 0
+        let depth = 0
+        let quote = ''
+        let escaped = false
+        for (let i = 0; i < text.length; i++) {
+            const c = text[i]
+            if (quote) {
+                if (escaped) escaped = false
+                else if (c === '\\') escaped = true
+                else if (c === quote) quote = ''
+                continue
+            }
+            if (c === "'" || c === '"' || c === '`') { quote = c; continue }
+            if (c === '{' || c === '[' || c === '(') depth++
+            else if (c === '}' || c === ']' || c === ')') depth--
+            else if (c === ',' && depth === 0) {
+                parts.push(text.slice(start, i))
+                start = i + 1
+            }
+        }
+        parts.push(text.slice(start))
+        return parts
+    }
+
+    function topLevelColon(text) {
+        let depth = 0
+        let quote = ''
+        let escaped = false
+        for (let i = 0; i < text.length; i++) {
+            const c = text[i]
+            if (quote) {
+                if (escaped) escaped = false
+                else if (c === '\\') escaped = true
+                else if (c === quote) quote = ''
+                continue
+            }
+            if (c === "'" || c === '"' || c === '`') { quote = c; continue }
+            if (c === '{' || c === '[' || c === '(') depth++
+            else if (c === '}' || c === ']' || c === ')') depth--
+            else if (c === ':' && depth === 0) return i
+        }
+        return -1
+    }
+
+    function unquoteValue(value) {
+        const s = String(value || '').trim()
+        const m = /^(['"`])([\s\S]*)\1$/.exec(s)
+        if (!m) return undefined
+        return m[2].replace(/\\(['"`\\])/g, '$1').replace(/\\n/g, '\n').replace(/\\t/g, '\t')
+    }
+
+    function simpleValue(value) {
+        const s = String(value || '').trim()
+        if (!s) return undefined
+        const quoted = unquoteValue(s)
+        if (quoted !== undefined) return quoted
+        if (s === 'true') return true
+        if (s === 'false') return false
+        if (s === 'null') return null
+        if (/^-?\d+(?:\.\d+)?$/.test(s)) return Number(s)
+        return undefined
+    }
+
+    function configStringProp(body, name) {
+        const m = new RegExp(name + "\\s*:\\s*(['\"`])([\\s\\S]*?)\\1").exec(body)
+        return m ? unquoteValue(m[0].replace(new RegExp('^' + name + '\\s*:\\s*', 'i'), '')) : undefined
+    }
+
+    function parseConfigFields(source) {
+        const match = /exports\.config\s*=\s*\{/.exec(source)
+        if (!match) return {}
+        const start = match.index + match[0].length - 1
+        const block = scanBalanced(source, start)
+        if (!block) return {}
+        const fields = {}
+        for (const raw of splitTopLevel(block.slice(1, -1))) {
+            const part = raw.trim()
+            if (!part) continue
+            const colon = topLevelColon(part)
+            if (colon < 0) continue
+            const key = unquoteValue(part.slice(0, colon).trim()) || part.slice(0, colon).trim()
+            if (!/^[A-Za-z_$][\w$]*$/.test(key)) continue
+            const body = part.slice(colon + 1).trim()
+            if (!body.startsWith('{')) continue
+            const field = {}
+            const type = configStringProp(body, 'type')
+            if (type) field.type = type
+            const label = configStringProp(body, 'label')
+            if (label !== undefined) field.label = label
+            const helperText = configStringProp(body, 'helperText')
+            if (helperText !== undefined) field.helperText = helperText
+            const dm = /(?:^|[,{\s])defaultValue\s*:\s*([^,}\n]+)/.exec(body)
+            if (dm) {
+                const v = simpleValue(dm[1])
+                if (v !== undefined) field.defaultValue = v
+            }
+            const mm = /(?:^|[,{\s])min\s*:\s*(-?\d+(?:\.\d+)?)/.exec(body)
+            if (mm) field.min = Number(mm[1])
+            const xm = /(?:^|[,{\s])max\s*:\s*(-?\d+(?:\.\d+)?)/.exec(body)
+            if (xm) field.max = Number(xm[1])
+            const om = /(?:^|[,{\s])options\s*:\s*\{/.exec(body)
+            if (om) {
+                const ob = scanBalanced(body, om.index + om[0].length - 1)
+                if (ob) {
+                    const options = {}
+                    for (const opt of splitTopLevel(ob.slice(1, -1))) {
+                        const c = topLevelColon(opt)
+                        if (c < 0) continue
+                        const labelKey = unquoteValue(opt.slice(0, c).trim()) || opt.slice(0, c).trim()
+                        const optValue = simpleValue(opt.slice(c + 1).trim())
+                        if (labelKey) options[labelKey] = optValue ?? opt.slice(c + 1).trim()
+                    }
+                    if (Object.keys(options).length) field.options = options
+                }
+            }
+            if (Object.keys(field).length) fields[key] = field
+        }
+        return fields
+    }
+
     async function mapLimit(items, limit, fn) {
         const ret = new Array(items.length)
         let next = 0
@@ -1496,6 +1777,7 @@ exports.init = async api => {
                 await writeJson(CATALOG_FILE, data)
                 catalogState.data = data
                 catalogState.progress = ''
+                await updateDescriptionsFromCatalog(entries)
                 logInfo(`catalog mirror synced: ${entries.length} entries`)
                 return data
             } catch (e) {
@@ -1753,6 +2035,67 @@ exports.init = async api => {
         return { ok: true, catalog: catalogInfo(), entries: data?.entries || [] }
     }
 
+    async function customRestDescriptions(params, ctx) {
+        assertAdmin(ctx)
+        return { ok: true, descriptions: await loadDescriptions() }
+    }
+
+    async function customRestSaveDescriptions(params, ctx) {
+        assertAdmin(ctx)
+        const descriptions = await saveDescriptions(Array.isArray(params?.entries) ? params.entries : [])
+        return { ok: true, descriptions }
+    }
+
+    async function readLocalPluginSource(id) {
+        const wanted = String(id || '').trim().toLowerCase()
+        if (!wanted) return ''
+        try {
+            const dirs = await fs.readdir(PLUGINS_ROOT, { withFileTypes: true })
+            const dir = dirs.find(d => d.isDirectory() && d.name.toLowerCase() === wanted)
+            if (!dir) return ''
+            return await fs.readFile(path.join(PLUGINS_ROOT, dir.name, 'plugin.js'), 'utf8')
+        } catch { return '' }
+    }
+
+    async function customRestOnlinePlugin(params, ctx) {
+        assertAdmin(ctx)
+        const repo = String(params?.repo || '').trim()
+        if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) throw Error('bad repo')
+        let source = await readLocalPluginSource(params?.id)
+        let sourceUrl = source ? 'local' : ''
+        const urls = [
+            `https://raw.githubusercontent.com/${repo}/main/dist/plugin.js`,
+            `https://raw.githubusercontent.com/${repo}/master/dist/plugin.js`,
+            `https://raw.githubusercontent.com/${repo}/main/plugin.js`,
+            `https://raw.githubusercontent.com/${repo}/master/plugin.js`,
+        ]
+        if (!source && repo) {
+            for (const url of urls) {
+                try {
+                    source = await fetchText(url, { timeout: 20000 })
+                    sourceUrl = url
+                    break
+                } catch {}
+            }
+        }
+        if (!source) return { ok: false, error: 'plugin.js not found' }
+        const parsed = parsePluginSource(source, repo, {})
+        const fields = parseConfigFields(source)
+        return {
+            ok: true,
+            plugin: {
+                id: parsed.id,
+                repo,
+                author: String(parsed.author || repo.split('/')[0] || '').trim(),
+                description: parsed.description || '',
+                version: parsed.version ?? null,
+                branch: /\/main\//.test(sourceUrl) ? 'main' : 'master',
+                sourceUrl,
+                fields,
+            },
+        }
+    }
+
     async function customRestTree(params, ctx) {
         assertAdmin(ctx)
         return { ok: true, tree: await loadTree() }
@@ -1830,6 +2173,9 @@ exports.init = async api => {
     await ensureStorage()
     await loadIndex()
     await loadCatalog()
+    await loadDescriptions()
+    if (catalogState.data?.entries?.length) await updateDescriptionsFromCatalog(catalogState.data.entries)
+    else await saveDescriptions([])
     await loadHidden()
     await loadTree()
 
@@ -1862,6 +2208,12 @@ exports.init = async api => {
     const p = effectiveProxy()
     logInfo(`loaded v${exports.version}; proxy=${p ? `${p.host}:${p.port}` : 'off'}; cache=${api.getConfig('cacheEnabled') ? 'on' : 'off'}; catalog=${catalogInfo().count} entries`)
 
+    const handleDescriptionEvent = event => {
+        updateDescriptionFromPlugin(event).catch(e => logDebug('description update failed: ' + e.message))
+    }
+    api.events?.on?.('pluginInstalled', handleDescriptionEvent)
+    api.events?.on?.('pluginUpdated', handleDescriptionEvent)
+
     return {
         middleware,
         customRest: {
@@ -1873,6 +2225,9 @@ exports.init = async api => {
             pluginsOptimizer_clearBlacklist: customRestClearBlacklist,
             pluginsOptimizer_syncCatalog: customRestSyncCatalog,
             pluginsOptimizer_catalog: customRestCatalog,
+            pluginsOptimizer_descriptions: customRestDescriptions,
+            pluginsOptimizer_saveDescriptions: customRestSaveDescriptions,
+            pluginsOptimizer_onlinePlugin: customRestOnlinePlugin,
             pluginsOptimizer_tree: customRestTree,
             pluginsOptimizer_saveTree: customRestSaveTree,
             pluginsOptimizer_resetTree: customRestResetTree,
