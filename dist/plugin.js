@@ -8,12 +8,14 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 33.5
+exports.version = 33.7
 exports.apiRequired = [12.7, 13.72]
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "Hug3O/Plugins-Optimizer"
 exports.preview = []
 exports.changelog = [
+    { version: 33.7, message: "Replace the Plugin Tree tab with the dedicated Optimizer settings tab that was recently removed." },
+    { version: 33.6, message: "Restore a dedicated PLUGIN TREE tab in the Installed plugins tab bar, alongside the native tabs." },
     { version: 33.5, message: "Apply light-theme control colors inline so admin accent rules cannot make settings inputs orange." },
     { version: 33.4, message: "Strengthen light-theme input selectors so accent-colored admin styles cannot paint settings inputs orange." },
     { version: 33.3, message: "Detect the admin light/day theme and adapt Plugin Skill Tree surfaces, text, inputs, dialogs and arrays." },

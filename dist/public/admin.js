@@ -405,12 +405,38 @@
     // ============================================================
     function ensureTab(list) {
         if (!list) return
-        // Skill Tree now lives in the sidebar, so the injected Optimizer tab
-        // and its panel are no longer part of the native tab bar.
-        $('[data-optimizer-tab]', list)?.remove()
-        document.getElementById('optimizer-panel')?.remove()
-        state.tab = null
-        state.panel = null
+        let tab = $('[data-optimizer-tab]', list)
+        if (!tab) {
+            const native = list.querySelector('[role="tab"]')
+            if (!native) return
+            tab = native.cloneNode(true)
+            tab.dataset.optimizerTab = '1'
+            tab.classList.add('opt-tab')
+            tab.classList.remove('Mui-selected')
+            tab.removeAttribute('id')
+            tab.removeAttribute('aria-controls')
+            tab.setAttribute('aria-selected', 'false')
+            tab.setAttribute('aria-label', 'Optimizer settings')
+            tab.tabIndex = -1
+            tab.textContent = 'OPTIMIZER'
+            tab.addEventListener('click', ev => {
+                ev.preventDefault()
+                ev.stopPropagation()
+                activateTab()
+            })
+            const indicator = $('.MuiTabs-indicator', list)
+            if (indicator) list.insertBefore(tab, indicator)
+            else list.appendChild(tab)
+            if (!list.dataset.optimizerBound) {
+                list.dataset.optimizerBound = '1'
+                list.addEventListener('click', ev => {
+                    const t = ev.target.closest && ev.target.closest('[role="tab"]')
+                    if (t && !t.dataset.optimizerTab && state.active) deactivateTab()
+                }, true)
+            }
+        }
+        state.tab = tab
+        ensurePanel(list)
     }
 
     function ensureSidebarButton() {
@@ -486,8 +512,7 @@
 
     function ensureSkillTab(list) {
         if (!list) return
-        const legacy = $('[data-skill-tab]', list)
-        if (legacy) legacy.remove()
+        $('[data-skill-tab]', list)?.remove()
         state.skillTab = null
         if (!list.dataset.skillBound) {
             list.dataset.skillBound = '1'
@@ -6275,6 +6300,7 @@
             }
             /* Skill Tree */
             .opt-skill-tab { white-space: nowrap; }
+            .opt-skill-tab.Mui-selected { color: var(--active-text, #ff9800) !important; font-weight: 600; }
             .skill-panel, .skill-panel *, .opt-toast {
                 box-shadow: none !important;
                 text-shadow: none !important;
