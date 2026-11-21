@@ -2,9 +2,8 @@
  *
  * Injected by the plugin's middleware into /~/admin/.
  * Adds:
- *   - a hide/show toggle next to the installed-plugins search button
- *   - a per-row hide button in the Name column
- *   - an "Optimizer" tab to the right of "Check updates"
+ *   - a PluginTree sidebar shortcut to the Skill Tree
+ *   - per-branch/plugin visual customization inside the Skill Tree
  *
  * Everything is stored server-side in the plugin config (hiddenPlugins) so it
  * survives browser reloads and HFS restarts.
@@ -13,34 +12,6 @@
     'use strict'
 
     if (!location.pathname.includes('/~/admin')) return
-
-    // The Installed list uses a live SSE stream. Load its initial snapshot, then
-    // close it: the list no longer needs a permanent connection, and users can
-    // refresh explicitly with the button next to the pause control.
-    const NativeEventSource = window.EventSource
-    if (NativeEventSource && !window.__optimizerQuietEventSource) {
-        window.__optimizerQuietEventSource = true
-        function OptimizerEventSource(url, config) {
-            const es = new NativeEventSource(url, config)
-            try {
-                if (String(url).includes('/api/get_plugins')) {
-                    const hasReady = x => Array.isArray(x) && (x[0] === 'ready' || x.some(hasReady))
-                    es.addEventListener('message', ev => {
-                        try {
-                            if (hasReady(JSON.parse(ev.data)))
-                                setTimeout(() => { try { es.close() } catch {} }, 0)
-                        } catch {}
-                    })
-                }
-            } catch {}
-            return es
-        }
-        OptimizerEventSource.prototype = NativeEventSource.prototype
-        OptimizerEventSource.CONNECTING = NativeEventSource.CONNECTING
-        OptimizerEventSource.OPEN = NativeEventSource.OPEN
-        OptimizerEventSource.CLOSED = NativeEventSource.CLOSED
-        window.EventSource = OptimizerEventSource
-    }
 
     const PLUGIN_ID = 'Plugins-Optimizer'
     const DIVIDER_ID = '__optimizer_rejetto_divider__'
@@ -1023,40 +994,10 @@
     }
 
     function ensureToolbar() {
-        const list = findTablist()
-        if (!list || !onInstalledList(list)) return
-        const root = state.root || (list.closest('.MuiTabs-root') && list.closest('.MuiTabs-root').parentElement)
-        if (!root) return
-        const grid = root.querySelector('.MuiDataGrid-root')
-        if (!grid) return
-        const filter = findFilterButton(grid)
-        if (!filter) return
-        const filterNode = filter.closest('span') || filter
-        const host = filterNode.parentElement
-        if (!host) return
-
-        const styleClass = filter.className
-        let refresh = document.getElementById('optimizer-refresh-btn')
-        if (!refresh) {
-            refresh = document.createElement('button')
-            refresh.id = 'optimizer-refresh-btn'
-            refresh.type = 'button'
-            refresh.title = 'Refresh plugin list'
-            refresh.setAttribute('aria-label', 'Refresh plugin list')
-            refresh.innerHTML = ICONS.refresh
-            refresh.addEventListener('click', ev => {
-                ev.preventDefault()
-                ev.stopPropagation()
-                refreshPluginList()
-            })
-        }
-        refresh.className = styleClass + ' opt-footer-btn'
-
-        // The hide/show button series has been removed from Installed.
+        // The custom footer Refresh button has been removed; the native live
+        // plugin stream keeps the Installed list current.
+        document.getElementById('optimizer-refresh-btn')?.remove()
         document.getElementById('optimizer-hide-toggle')?.remove()
-
-        if (refresh.parentElement !== host) host.insertBefore(refresh, filterNode)
-        if (refresh.nextElementSibling !== filterNode) host.insertBefore(refresh, filterNode)
     }
 
     function updateToggleButton() {
