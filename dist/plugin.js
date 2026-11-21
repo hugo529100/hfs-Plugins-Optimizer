@@ -8,12 +8,40 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 25.3
-exports.apiRequired = 12.7
+exports.version = 28.1
+exports.apiRequired = [12.7, 13.72]
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "Hug3O/Plugins-Optimizer"
 exports.preview = []
 exports.changelog = [
+    { version: 28.1, message: "Show green outlines for queued start actions, yellow outlines for queued updates, and a yellow outline on update-available cards." },
+    { version: 28, message: "Track HFS pluginDownload events server-side and restore active downloads after page refreshes, including downloads not started by PluginTree." },
+    { version: 27.9, message: "Add an Update button to plugins with an available update, including queued updates during downloads." },
+    { version: 27.8, message: "Use a blue slow outline for the active download and a purple slow outline for queued downloads." },
+    { version: 27.7, message: "Show a slow semi-transparent purple outline while a plugin download is active." },
+    { version: 27.6, message: "Replace raw 404 stack traces with a readable package/support-plugin message." },
+    { version: 27.5, message: "Queue plugin start/stop/uninstall actions while downloads are active, and persist those actions across page refreshes." },
+    { version: 27.4, message: "Apply the same fuzzy ID matching to the Unarranged count in the PluginTree header." },
+    { version: 27.3, message: "Fuzzy-match PluginTree IDs across case, hugo529100-/hfs- prefixes and trailing + so already-arranged plugins no longer appear in Unarranged." },
+    { version: 27.2, message: "Click the flashing/queued install button again to cancel that download or remove it from the queue." },
+    { version: 27.1, message: "Show plugin dependency/runtime errors on PluginTree cards and turn HTTP 424 into a named missing-support-plugin message." },
+    { version: 27, message: "Add a persistent download queue for PluginTree: multiple installs wait in order and the active/queued state is restored after a page refresh." },
+    { version: 26.9, message: "Persist active PluginTree downloads across page refreshes and restore their flashing progress until the plugin appears." },
+    { version: 26.8, message: "Downloading a plugin from PluginTree no longer enables or starts it; the user starts it explicitly." },
+    { version: 26.7, message: "Move the Debug logging switch to the bottom of the settings form." },
+    { version: 26.6, message: "Remove the Enable network modules master switch; proxy and cache modules are now configured only by their own switches." },
+    { version: 26.5, message: "Hide the trailing -main suffix in PluginTree display names while keeping it in stored IDs." },
+    { version: 26.4, message: "Pulse the plugin card border with a slow yellow glow when HFS reports an available update." },
+    { version: 26.3, message: "Prevent PluginTree from uninstalling Plugins-Optimizer itself; hide its delete control and guard the uninstall action." },
+    { version: 26.2, message: "Treat hfs- and -main as naming aliases so downloaded plugins light up their existing tree node and stay out of Unarranged; hide the hfs- prefix in labels." },
+    { version: 26.1, message: "Suppress HFS's stale 'plugin failing' banner after verifying that no installed plugin reports an error or bad API." },
+    { version: 26, message: "Declare an HFS API compatibility range so HFS no longer flags this plugin as designed for an older server." },
+    { version: 25.9, message: "Flash the failed plugin's card border red for 12 seconds after an install failure." },
+    { version: 25.8, message: "Pulse error/failure toasts with a slow red outer border; mark failed download percentages red." },
+    { version: 25.7, message: "Flash the install button and show an estimated download percentage while a PluginTree install is running." },
+    { version: 25.6, message: "Show immediate install/start/failure toasts, keep them visible in fullscreen, and refresh the PluginTree card after activation." },
+    { version: 25.5, message: "Add a per-load admin-page token for custom REST calls, so admin-only endpoints work even when HFS account APIs differ across servers." },
+    { version: 25.4, message: "Recognize custom-named HFS admin accounts instead of only the literal admin username." },
     { version: 25.3, message: "Remove the Installed-page EventSource interceptor and custom footer Refresh button." },
     { version: 25.2, message: "Remove the injected Optimizer tab now that Skill Tree is opened from the sidebar; clean up its old panel." },
     { version: 25.1, message: "Render the empty Unarranged label and hint at 50% opacity." },
@@ -237,37 +265,23 @@ exports.changelog = [
 ]
 
 exports.config = {
-    // ========== Master switches ==========
-    enabled: {
-        type: 'boolean', defaultValue: true, label: 'Enable network modules',
-        helperText: "Master switch for proxy and cache request handling. Admin panel extensions are always enabled independently.",
-        xs: 12
-    },
-    debug: {
-        type: 'boolean', defaultValue: false, label: 'Debug logging',
-        helperText: "Print HIT/MISS/proxy/catalog details. When off, only important messages and rate-limited errors are logged.",
-        xs: 12,
-        showIf: c => c.enabled === true
-    },
-
     // ========== VPN / proxy ==========
     proxyEnabled: {
         type: 'boolean', defaultValue: false, label: 'Route GitHub traffic through VPN proxy',
         helperText: "Independent proxy module. If HFS has a global outbound proxy (Options > Networking), HFS takes precedence over this proxy. Only GitHub hostnames below are tunneled by this plugin.",
         xs: 12,
-        showIf: c => c.enabled === true
     },
     proxyHost: {
         type: 'string', defaultValue: '192.168.1.224', label: 'VPN proxy host',
         helperText: "Default 192.168.1.224. You may also paste http://IP:PORT.",
         xs: 8,
-        showIf: c => c.enabled === true && c.proxyEnabled === true
+        showIf: c => c.proxyEnabled === true
     },
     proxyPort: {
         type: 'number', defaultValue: 10809, min: 1, max: 65535, label: 'VPN proxy port',
         helperText: "Default 10809. No username/password is required.",
         xs: 4,
-        showIf: c => c.enabled === true && c.proxyEnabled === true
+        showIf: c => c.proxyEnabled === true
     },
     githubHosts: {
         type: 'string',
@@ -275,7 +289,7 @@ exports.config = {
         label: 'GitHub hosts routed through the proxy',
         helperText: "Comma-separated suffix match. These are exactly the hosts used by plugin installs/updates and HFS updates.",
         xs: 12,
-        showIf: c => c.enabled === true && c.proxyEnabled === true
+        showIf: c => c.proxyEnabled === true
     },
 
     // ========== Cache ==========
@@ -283,64 +297,62 @@ exports.config = {
         type: 'boolean', defaultValue: false, label: 'Enable GitHub disk cache',
         helperText: "Cache GET/HEAD responses from GitHub API and raw plugin files. Survives restarts and saves GitHub rate-limit quota.",
         xs: 12,
-        showIf: c => c.enabled === true
     },
     ttlHours: {
         type: 'number', defaultValue: 24, min: 0.1, max: 720, label: 'Fresh TTL (hours)',
         helperText: "Within this window cached data is served without contacting GitHub.",
         xs: 6,
-        showIf: c => c.enabled === true && c.cacheEnabled === true
+        showIf: c => c.cacheEnabled === true
     },
     pluginTtlHours: {
         type: 'number', defaultValue: 6, min: 0.1, max: 720, label: 'Plugin.js TTL (hours)',
         helperText: "Shorter TTL for plugin.js / raw plugin files so new versions are picked up sooner.",
         xs: 6,
-        showIf: c => c.enabled === true && c.cacheEnabled === true
+        showIf: c => c.cacheEnabled === true
     },
     maxAgeDays: {
         type: 'number', defaultValue: 30, min: 1, max: 365, label: 'Max cache age (days)',
         helperText: "Stale-while-revalidate window. Older files are pruned in the background.",
         xs: 6,
-        showIf: c => c.enabled === true && c.cacheEnabled === true
+        showIf: c => c.cacheEnabled === true
     },
     catalogSyncHours: {
         type: 'number', defaultValue: 6, min: 0, max: 720, label: 'Plugin catalog mirror sync (hours)',
         helperText: "How often the plugin rebuilds its portable catalog.json in its storage folder. 0 disables automatic sync.",
         xs: 6,
-        showIf: c => c.enabled === true
     },
     githubToken: {
         type: 'password', defaultValue: '', label: 'GitHub Token (optional)',
         helperText: "PAT. When set, api.github.com requests get an Authorization header (60/h -> 5000/h).",
         xs: 12,
-        showIf: c => c.enabled === true && c.cacheEnabled === true
+        showIf: c => c.cacheEnabled === true
     },
     cacheApi: {
         type: 'boolean', defaultValue: true, label: 'Cache api.github.com',
         xs: 6,
-        showIf: c => c.enabled === true && c.cacheEnabled === true
+        showIf: c => c.cacheEnabled === true
     },
     cacheRaw: {
         type: 'boolean', defaultValue: true, label: 'Cache raw.githubusercontent.com',
         xs: 6,
-        showIf: c => c.enabled === true && c.cacheEnabled === true
+        showIf: c => c.cacheEnabled === true
     },
     cacheGithubHtml: {
         type: 'boolean', defaultValue: false, label: 'Cache github.com HTML',
         xs: 6,
-        showIf: c => c.enabled === true && c.cacheEnabled === true
+        showIf: c => c.cacheEnabled === true
     },
     skipSuspiciousHtml: {
         type: 'boolean', defaultValue: true, label: 'Skip caching suspicious HTML/error responses',
         helperText: "Do not cache 2xx responses that look like GitHub error pages.",
         xs: 12,
-        showIf: c => c.enabled === true && c.cacheEnabled === true
+        showIf: c => c.cacheEnabled === true
     },
     normalizeUrl: {
         type: 'boolean', defaultValue: true, label: 'Normalize URL for cache key',
         helperText: "Strip cache-busting query params (t, _, timestamp, cachebust, v), sort remaining query, trim trailing slash. Recommended ON.",
         xs: 12,
-        showIf: c => c.enabled === true && c.cacheEnabled === true
+        showIf: c => c.cacheEnabled === true
     },
 
     // ========== Network behavior ==========
@@ -348,39 +360,52 @@ exports.config = {
         type: 'number', defaultValue: 20, min: 1, max: 64, label: 'Max concurrent GitHub requests',
         helperText: "Limits simultaneous tunnels. Raise this if plugin loading is slow; lower if your proxy resets under load.",
         xs: 6,
-        showIf: c => c.enabled === true
     },
     retryCount: {
         type: 'number', defaultValue: 2, min: 0, max: 5, label: 'Retries on transient network errors',
         helperText: "Retries ECONNRESET / ETIMEDOUT / socket hang up with backoff. HEAD requests only retry once.",
         xs: 6,
-        showIf: c => c.enabled === true
     },
     requestTimeoutSec: {
         type: 'number', defaultValue: 30, min: 3, max: 120, label: 'Request timeout (seconds)',
         helperText: "Abort a request that takes longer than this. Lower = less slot blocking; higher = better for large downloads.",
         xs: 6,
-        showIf: c => c.enabled === true
     },
     failBlacklistThreshold: {
         type: 'number', defaultValue: 3, min: 0, max: 10, label: 'Fail blacklist threshold',
         helperText: "After this many consecutive failures, a URL is short-circuited. 0 = disable.",
         xs: 6,
-        showIf: c => c.enabled === true
     },
     failBlacklistSeconds: {
         type: 'number', defaultValue: 60, min: 10, max: 3600, label: 'Fail blacklist cooldown (seconds)',
         helperText: "How long a blacklisted URL is rejected without contacting GitHub.",
         xs: 6,
-        showIf: c => c.enabled === true
+    },
+
+    debug: {
+        type: 'boolean', defaultValue: false, label: 'Debug logging',
+        helperText: "Print HIT/MISS/proxy/catalog details. When off, only important messages and rate-limited errors are logged.",
+        xs: 12
     },
 
 }
 
 exports.init = async api => {
+    try {
+        api.events?.on?.('pluginDownload', event => {
+            const repo = typeof event === 'string' ? event : event?.repo
+            if (!repo) return
+            if (event?.status) activeDownloads.set(repo, { repo, startedAt: Date.now() })
+            else activeDownloads.delete(repo)
+        })
+        api.events?.on?.('pluginDownloaded', event => {
+            if (event?.repo) activeDownloads.delete(event.repo)
+        })
+    } catch {}
     const fs = api.require('fs').promises
     const path = api.require('path')
     const crypto = api.require('crypto')
+    const ADMIN_TOKEN = crypto.randomBytes(24).toString('hex')
     const http = api.require('http')
     const https = api.require('https')
     const tls = api.require('tls')
@@ -404,6 +429,7 @@ exports.init = async api => {
     const PLUGINS_ROOT = path.dirname(path.dirname(storageDir))
     const STORAGE_VERSION = 1
     let descriptionsCache = null
+    const activeDownloads = new Map()
     let hiddenCache = []
     let treeCache = null
 
@@ -437,7 +463,7 @@ exports.init = async api => {
     }
 
     function proxyConfig() {
-        if (!api.getConfig('enabled') || !networkOn() || !api.getConfig('proxyEnabled')) return null
+        if (!networkOn() || !api.getConfig('proxyEnabled')) return null
         let host = String(api.getConfig('proxyHost') || '').trim()
         let port = Number(api.getConfig('proxyPort')) || 0
         let protocol = 'http'
@@ -1447,7 +1473,6 @@ exports.init = async api => {
         const patched = function (...args) {
             if (!installed) return original.apply(this, args)
             if (isBypassed()) return original.apply(this, args)
-            if (!api.getConfig('enabled')) return original.apply(this, args)
 
             const parsed = requestOptionsFromArgs(args)
             if (!parsed) return original.apply(this, args)
@@ -1727,8 +1752,6 @@ exports.init = async api => {
     }
 
     async function syncCatalog(force = false) {
-        if (!api.getConfig('enabled'))
-            throw Error('Plugin is disabled')
         if (catalogState.syncing && catalogState.promise) return catalogState.promise
         if (!force && !catalogStale()) return catalogState.data
         catalogState.syncing = true
@@ -1810,8 +1833,6 @@ exports.init = async api => {
     //  Proxy self-test
     // ============================================================
     async function testProxy(host, port) {
-        if (!api.getConfig('enabled'))
-            return { ok: false, error: 'Plugin is disabled', at: Date.now() }
         let h = String(host || api.getConfig('proxyHost') || DEFAULT_PROXY_HOST).trim()
         let p = Number(port || api.getConfig('proxyPort') || DEFAULT_PROXY_PORT)
         if (h.includes('://')) {
@@ -1885,9 +1906,42 @@ exports.init = async api => {
     // ============================================================
     //  Custom REST API (admin only)
     // ============================================================
+    function adminUsernames() {
+        const names = new Set(['admin'])
+        try {
+            const accounts = api.getHfsConfig('accounts') || {}
+            for (const [name, account] of Object.entries(accounts)) {
+                if (account?.admin === true) names.add(String(name).toLocaleLowerCase())
+            }
+        } catch {}
+        return [...names]
+    }
+
     function assertAdmin(ctx) {
         let ok = false
-        try { ok = api.ctxBelongsTo(ctx, ['admin']) } catch {}
+        try {
+            const supplied = String(ctx.get?.('x-optimizer-token') || ctx.headers?.['x-optimizer-token'] || '')
+            if (supplied && supplied.length === ADMIN_TOKEN.length
+                && crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(ADMIN_TOKEN)))
+                return
+        } catch {}
+        try { ok = api.ctxBelongsTo(ctx, adminUsernames()) } catch {}
+        if (!ok) {
+            try {
+                const usernames = ctx.state?.usernames
+                if (usernames && typeof usernames.has === 'function')
+                    ok = adminUsernames().some(name => usernames.has(name))
+            } catch {}
+        }
+        if (!ok) {
+            try {
+                const username = api.getCurrentUsername?.(ctx)
+                if (username) {
+                    const account = api.getAccount?.(username)
+                    ok = account?.admin === true
+                }
+            } catch {}
+        }
         if (!ok) throw Error('admin only')
     }
 
@@ -1915,7 +1969,7 @@ exports.init = async api => {
             cacheDir: CACHE_ROOT,
             config: redactedConfig(),
             network: {
-                enabled: !!api.getConfig('enabled'),
+                enabled: true,
             },
             proxy: {
                 enabled: !!api.getConfig('proxyEnabled'),
@@ -2098,6 +2152,11 @@ exports.init = async api => {
         }
     }
 
+    async function customRestDownloads(params, ctx) {
+        assertAdmin(ctx)
+        return { ok: true, downloads: [...activeDownloads.values()] }
+    }
+
     async function customRestTree(params, ctx) {
         assertAdmin(ctx)
         return { ok: true, tree: await loadTree() }
@@ -2156,7 +2215,7 @@ exports.init = async api => {
             const base = (ctx.state?.revProxyPath || '') + '/~/plugins/Plugins-Optimizer/admin.js'
             const src = `${base}?v=${encodeURIComponent(String(exports.version))}`
             const hidden = JSON.stringify(hiddenList()).replace(/</g, '\\u003c')
-            const data = `<script>window.__OPTIMIZER_HIDDEN__=${hidden}</script>`
+            const data = `<script>window.__OPTIMIZER_HIDDEN__=${hidden};window.__OPTIMIZER_TOKEN__=${JSON.stringify(ADMIN_TOKEN)}</script>`
             const tag = `<script id="plugins-optimizer-admin" src="${src}"></script>`
             // Load in <head> (before the admin module) so we can quiet the live
             // plugin-list EventSource before React creates it. The script itself
@@ -2230,6 +2289,7 @@ exports.init = async api => {
             pluginsOptimizer_descriptions: customRestDescriptions,
             pluginsOptimizer_saveDescriptions: customRestSaveDescriptions,
             pluginsOptimizer_onlinePlugin: customRestOnlinePlugin,
+            pluginsOptimizer_downloads: customRestDownloads,
             pluginsOptimizer_tree: customRestTree,
             pluginsOptimizer_saveTree: customRestSaveTree,
             pluginsOptimizer_resetTree: customRestResetTree,

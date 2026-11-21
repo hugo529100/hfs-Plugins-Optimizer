@@ -79,6 +79,10 @@
         rejettoComparator: null,
         nativeSortRestored: false,
         allRows: null,
+        updates: new Set(),
+        updatesLoading: false,
+        serverDownloads: new Set(),
+        errorsAnnounced: false,
         skillActive: false,
         sidebarPending: false,
         sidebarTree: null,
@@ -184,22 +188,39 @@
     // ============================================================
     async function apiCall(cmd, params, opts) {
         const timeout = (opts && opts.timeout) || 20000
-        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+        const externalSignal = opts && opts.signal
+        const controller = !externalSignal && typeof AbortController !== 'undefined' ? new AbortController() : null
         const timer = setTimeout(() => controller && controller.abort('timeout'), timeout)
         try {
+            const headers = { 'content-type': 'application/json', 'x-hfs-anti-csrf': '1' }
+            if (window.__OPTIMIZER_TOKEN__) headers['x-optimizer-token'] = window.__OPTIMIZER_TOKEN__
             const res = await fetch(API_BASE + cmd, {
                 method: 'POST',
-                headers: { 'content-type': 'application/json', 'x-hfs-anti-csrf': '1' },
+                headers,
                 body: JSON.stringify(params || {}),
                 credentials: 'same-origin',
-                signal: controller ? controller.signal : undefined,
+                signal: externalSignal || (controller ? controller.signal : undefined),
             })
             const text = await res.text()
             let data
             try { data = text ? JSON.parse(text) : null } catch { data = text }
             if (!res.ok) {
-                const msg = typeof data === 'string' ? data : (data && (data.message || data.error)) || `HTTP ${res.status}`
-                throw new Error(msg)
+                const details = Array.isArray(data) ? data
+                    : Array.isArray(data?.cause) ? data.cause
+                    : null
+                let msg = typeof data === 'string' ? data : (data && (data.message || data.error)) || `HTTP ${res.status}`
+                if (res.status === 424 && details?.length) {
+                    msg = 'Needs support plugin' + (details.length > 1 ? 's' : '') + ': '
+                        + details.map(item => `${item.id || item.repo} (${item.error || 'missing'})`).join(', ')
+                } else if (res.status === 404) {
+                    msg = 'Package source not found (404). Check the repository/branch, or install the required support plugin first.'
+                } else if (typeof msg === 'string' && /^\s*Error:/.test(msg)) {
+                    msg = msg.split(/\n|\s+at\s+/)[0].trim()
+                }
+                const err = new Error(msg)
+                err.code = res.status
+                err.details = details
+                throw err
             }
             return data
         } finally {
@@ -210,12 +231,15 @@
     const rest = (name, params, opts) => apiCall('_' + name, params, opts)
 
     function toast(message, type, ms) {
+        const fullscreenPanel = document.fullscreenElement
+            || (state.skillPanel?.classList.contains('skill-fullscreen') ? state.skillPanel : null)
+        const mount = fullscreenPanel || document.body
         let host = document.getElementById('optimizer-toast-host')
         if (!host) {
             host = document.createElement('div')
             host.id = 'optimizer-toast-host'
-            document.body.appendChild(host)
         }
+        if (host.parentElement !== mount) mount.appendChild(host)
         const el = document.createElement('div')
         el.className = 'opt-toast' + (type ? ' opt-toast-' + type : '')
         el.textContent = String(message)
@@ -487,7 +511,15 @@
         setNativeTabsVisible(false)
         setIndicator()
         updateSidebarActive()
-        loadTree().catch(e => toast('Tree load failed: ' + e.message, 'error'))
+        loadTree().then(() => {
+            loadTreeUpdates()
+            setTimeout(() => {
+                loadServerDownloads()
+                applyPendingDownloadFeedback(true)
+                processDownloadQueue()
+                processTreeActions()
+            }, 1200)
+        }).catch(e => toast('Tree load failed: ' + e.message, 'error'))
     }
 
     function deactivateSkillTab() {
@@ -1345,6 +1377,7 @@
         delete: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
         info: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z',
         install: 'M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z',
+        update: 'M16 18v2H8v-2h8zM11 7.99V16h2V7.99h3L12 4 8 7.99h3z',
         expand: 'M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z',
     }
 
@@ -1364,21 +1397,46 @@
     }
 
     function pluginIdKey(id) {
-        return String(id || '').toLowerCase().replace(/^hfs-/, '')
+        return String(id || '').toLowerCase().replace(/^hfs-/, '').replace(/-main$/, '')
+    }
+
+    function pluginDisplayName(id) {
+        return String(id || '')
+            .replace(/^(?:hugo529100|hugo29100)[-_]/i, '')
+            .replace(/^hfs-/i, '')
+            .replace(/-main$/i, '')
+            .replace(/\+$/, '')
+    }
+
+    function pluginMatchKey(id) {
+        let value = String(id || '').toLowerCase().replace(/^.*[\\/]/, '')
+        value = value.replace(/^(?:hugo529100|hugo29100)[-_]?/, '')
+        value = value.replace(/^hfs[-_]?/, '')
+        value = value.replace(/-main$/, '')
+        value = value.replace(/\+$/, '')
+        return value.replace(/[^a-z0-9]/g, '')
+    }
+
+    function isSelfPlugin(id) {
+        return String(id || '').toLowerCase() === String(PLUGIN_ID).toLowerCase()
     }
 
     function samePluginId(a, b) {
         return String(a).toLowerCase() === String(b).toLowerCase()
             || pluginIdKey(a) === pluginIdKey(b)
+            || pluginMatchKey(a) === pluginMatchKey(b)
     }
 
     function makeInstalledMap(rows) {
         const map = new Map(rows.map(r => [r.id, r]))
         const byLower = new Map(rows.map(r => [String(r.id).toLowerCase(), r.id]))
         const byNormalized = new Map()
+        const byFuzzy = new Map()
         for (const row of rows) {
             const key = pluginIdKey(row.id)
             if (!byNormalized.has(key)) byNormalized.set(key, row.id)
+            const fuzzy = pluginMatchKey(row.id)
+            if (!byFuzzy.has(fuzzy)) byFuzzy.set(fuzzy, row.id)
         }
         const baseGet = Map.prototype.get.bind(map)
         const baseHas = Map.prototype.has.bind(map)
@@ -1389,6 +1447,7 @@
             const lower = raw.toLowerCase()
             let canonical = byLower.get(lower)
             if (canonical === undefined) canonical = byNormalized.get(pluginIdKey(raw))
+            if (canonical === undefined) canonical = byFuzzy.get(pluginMatchKey(raw))
             return canonical !== undefined ? baseGet(canonical) : undefined
         }
         map.has = key => map.get(key) !== undefined
@@ -1397,6 +1456,8 @@
             byLower.set(String(key).toLowerCase(), key)
             const normalized = pluginIdKey(key)
             if (!byNormalized.has(normalized)) byNormalized.set(normalized, key)
+            const fuzzy = pluginMatchKey(key)
+            if (!byFuzzy.has(fuzzy)) byFuzzy.set(fuzzy, key)
             return map
         }
         return map
@@ -1695,7 +1756,12 @@
     function canonicalizeTreeIds() {
         const tree = state.tree
         if (!tree) return
-        const remap = id => state.installed.get(id)?.id || id
+        const remap = id => {
+            const row = state.installed.get(id)
+            if (!row) return id
+            // hfs- and -main are only naming variants of the same plugin.
+            return pluginMatchKey(row.id) === pluginMatchKey(id) || pluginIdKey(row.id) === pluginIdKey(id) ? id : row.id
+        }
         const remapList = list => {
             const out = []
             for (const id of list || []) {
@@ -1730,6 +1796,34 @@
                 if (!meta[canonical]) meta[canonical] = value
             }
             tree.pluginMeta = meta
+        }
+    }
+
+    async function loadTreeUpdates() {
+        if (state.updatesLoading) return
+        state.updatesLoading = true
+        try {
+            const data = await apiCall('get_plugin_updates', {}, { timeout: 60000 })
+            const updates = new Set()
+            for (const row of data?.list || []) {
+                if (row?.id) updates.add(pluginMatchKey(row.id))
+                if (row?.repo) updates.add(pluginMatchKey(row.repo))
+            }
+            state.updates = updates
+            renderTree()
+        } catch {}
+        finally { state.updatesLoading = false }
+    }
+
+    function pluginHasUpdate(id) {
+        return state.updates.has(pluginMatchKey(id))
+    }
+
+    function applyTreeUpdates() {
+        const panel = state.skillPanel
+        if (!panel) return
+        for (const node of panel.querySelectorAll('.skill-node.skill-plugin[data-id]')) {
+            node.classList.toggle('has-update', pluginHasUpdate(node.dataset.id))
         }
     }
 
@@ -1807,6 +1901,10 @@
             for (const id of main.plugins || []) ids.add(id)
         for (const root of state.tree?.roots || [])
             for (const id of root.plugins || []) ids.add(id)
+        for (const id of [...ids]) {
+            ids.add(pluginIdKey(id))
+            ids.add(pluginMatchKey(id))
+        }
         return ids
     }
 
@@ -2603,12 +2701,41 @@
             requestAnimationFrame(focusTree)
         }
         renderTray()
+        applyTreeUpdates()
+        applyPendingDownloadFeedback()
+        applyQueuedActionFeedback()
+        updateSkillSummary()
+        announcePluginErrors()
+    }
+
+    function announcePluginErrors() {
+        if (state.errorsAnnounced) return
+        const errors = [...state.installed.values()].filter(row => row.error)
+        if (!errors.length) {
+            state.errorsAnnounced = false
+            return
+        }
+        state.errorsAnnounced = true
+        const text = errors.map(row => `${pluginDisplayName(row.id)}: ${row.error}`).join(' | ')
+        toast('Plugin needs attention — ' + text, 'error', 10000)
+    }
+
+    function updateSkillSummary() {
+        const panel = state.skillPanel
+        const sub = panel?.querySelector('[data-skill-sub]')
+        if (!sub) return
         const installedCount = state.installed.size
         const runningCount = [...state.installed.values()].filter(row => row.started).length
         const treeIds = treePluginIds()
-        const unarrangedCount = [...state.installed.keys()].filter(id => !treeIds.has(id)).length
-        const sub = panel.querySelector('[data-skill-sub]')
-        if (sub) sub.textContent = `${installedCount} installed | ${runningCount} running | ${unarrangedCount} unarranged`
+        const unarrangedCount = [...state.installed.keys()]
+            .filter(id => !treeIds.has(id) && !treeIds.has(pluginMatchKey(id))).length
+        const queue = queueEntries()
+        const queuePart = queue.length
+            ? ` | ${queue.filter(x => x.status === 'downloading').length} downloading, ${queue.filter(x => x.status !== 'downloading').length} queued`
+            : ''
+        const actions = readTreeActions().length
+        const actionPart = actions ? ` | ${actions} action${actions === 1 ? '' : 's'} queued` : ''
+        sub.textContent = `${installedCount} installed | ${runningCount} running | ${unarrangedCount} unarranged${queuePart}${actionPart}`
     }
 
     function bindBranchDrop(el, item) {
@@ -3559,7 +3686,7 @@
         const version = row?.version != null ? row.version : '-'
         const description = storedDescription || (hug3o ? 'Hug3O plugin (not installed)' : '')
         const el = document.createElement('div')
-        el.className = 'skill-node skill-plugin' + (installed ? (running ? ' running' : ' stopped') : ' missing') + (hug3o ? ' hug3o' : '')
+        el.className = 'skill-node skill-plugin' + (installed ? (running ? ' running' : ' stopped') : ' missing') + (hug3o ? ' hug3o' : '') + (row?.error ? ' plugin-error' : '')
         el.dataset.key = item.key
         el.dataset.id = item.id
         setNodeXY(el, item.x, item.y)
@@ -3582,7 +3709,7 @@
         }
         const name = document.createElement('span')
         name.className = 'skill-name'
-        name.textContent = item.id
+        name.textContent = pluginDisplayName(item.id)
         name.title = 'Right-click to change border colour; long press to reset'
         name.addEventListener('contextmenu', ev => {
             ev.preventDefault()
@@ -3593,6 +3720,17 @@
         const ver = document.createElement('span')
         ver.className = 'skill-ver'
         ver.textContent = 'v' + version
+        let errorBadge = null
+        if (row?.error) {
+            errorBadge = document.createElement('span')
+            errorBadge.className = 'skill-plugin-error'
+            errorBadge.textContent = '!'
+            errorBadge.title = row.error
+            errorBadge.addEventListener('click', ev => {
+                ev.stopPropagation()
+                toast(row.error, 'error', 9000)
+            })
+        }
         const actions = document.createElement('span')
         actions.className = 'skill-card-actions'
         const starred = treeIsStarred(item.id)
@@ -3602,6 +3740,15 @@
         star.innerHTML = starred ? ICONS.starFilled : ICONS.star
         star.title = starred ? 'Unstar ' + item.id : 'Star ' + item.id + ' (keep in Save default)'
         star.addEventListener('click', ev => { ev.stopPropagation(); toggleStar(item.id) })
+        if (installed && pluginHasUpdate(item.id)) {
+            const update = document.createElement('button')
+            update.type = 'button'
+            update.className = 'skill-icon update'
+            update.innerHTML = treeIcon('update', 15)
+            update.title = 'Update ' + pluginDisplayName(item.id) + ' to the latest version'
+            update.addEventListener('click', ev => { ev.stopPropagation(); updateTreePlugin(item.id) })
+            actions.appendChild(update)
+        }
         actions.appendChild(star)
         if (description) {
             const info = document.createElement('button')
@@ -3626,7 +3773,7 @@
         gear.innerHTML = treeIcon('settings', 15)
         gear.title = 'Preview settings'
         gear.addEventListener('click', ev => { ev.stopPropagation(); toggleInlineSettings(item.id) })
-        if (installed) {
+        if (installed && !isSelfPlugin(item.id)) {
             const del = document.createElement('button')
             del.type = 'button'
             del.className = 'skill-icon danger'
@@ -3645,7 +3792,9 @@
             if (ev.target.closest('button, .skill-drag-handle')) return
             startNodeDrag(ev, item, el)
         })
-        card.append(grip, power, name, ver, actions)
+        card.append(grip, power, name, ver)
+        if (errorBadge) card.append(errorBadge)
+        card.append(actions)
         el.appendChild(card)
         return el
     }
@@ -4122,7 +4271,7 @@
         scheduleTreeRefresh()
     }
 
-    async function togglePluginPower(id, running) {
+    async function performPowerAction(id, running) {
         try {
             const canonical = state.installed.get(id)?.id || id
             if (running) await apiCall('stop_plugin', { id: canonical })
@@ -4138,6 +4287,38 @@
             toast('Power action failed: ' + e.message, 'error')
             refreshTreeInstalled().catch(() => {})
         }
+    }
+
+    async function performUpdate(canonical) {
+        try {
+            await apiCall('update_plugin', { id: canonical }, { timeout: 240000 })
+            for (const key of [...state.updates]) {
+                if (samePluginId(key, canonical)) state.updates.delete(key)
+            }
+            toast('Updated ' + canonical, undefined, 6000)
+            await refreshTreeInstalled()
+            scheduleTreeRefresh(900)
+        } catch (e) {
+            toast('Update failed: ' + e.message, 'error', 9000)
+            refreshTreeInstalled().catch(() => {})
+        }
+    }
+
+    async function updateTreePlugin(id) {
+        const canonical = state.installed.get(id)?.id || id
+        if (actionRunning || queueEntries().length || readTreeActions().length) {
+            queueTreeAction('update', canonical)
+            return
+        }
+        await performUpdate(canonical)
+    }
+
+    async function togglePluginPower(id, running) {
+        if (actionRunning || queueEntries().length || readTreeActions().length) {
+            queueTreeAction(running ? 'stop' : 'start', id)
+            return
+        }
+        await performPowerAction(id, running)
     }
 
     function openTreeConfirm(text, okLabel, action) {
@@ -4188,15 +4369,325 @@
         toast('Starred: ' + canonical + ' | included in Save default')
     }
 
-    async function uninstallTreePlugin(id) {
-        const canonical = state.installed.get(id)?.id || id
-        if (!(await uiConfirm('Uninstall ' + canonical + ' and delete its plugin config?', 'Uninstall'))) return
+    async function performUninstall(canonical) {
         try {
             await apiCall('uninstall_plugin', { id: canonical, deleteConfig: true }, { timeout: 60000 })
             toast('Uninstalled ' + canonical)
             await refreshTreeInstalled({ id: canonical, installed: false })
             scheduleTreeRefresh(900)
         } catch (e) { toast('Uninstall failed: ' + e.message, 'error') }
+    }
+
+    async function uninstallTreePlugin(id) {
+        const canonical = state.installed.get(id)?.id || id
+        if (isSelfPlugin(canonical)) {
+            toast('Plugins-Optimizer cannot uninstall itself', 'error', 7000)
+            return
+        }
+        if (!(await uiConfirm('Uninstall ' + canonical + ' and delete its plugin config?', 'Uninstall'))) return
+        if (actionRunning || queueEntries().length || readTreeActions().length) {
+            queueTreeAction('uninstall', canonical)
+            return
+        }
+        await performUninstall(canonical)
+    }
+
+    const PENDING_DOWNLOADS_KEY = 'pluginsOptimizer.pendingDownloads.v1'
+    const TREE_ACTIONS_KEY = 'pluginsOptimizer.actionQueue.v1'
+    const PENDING_DOWNLOAD_MAX_AGE = 30 * 60 * 1000
+    let queueRunning = false
+    let actionRunning = false
+    let activeDownloadController = null
+    const canceledDownloads = new Set()
+
+    function readPendingDownloads() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(PENDING_DOWNLOADS_KEY) || '{}')
+            return raw && typeof raw === 'object' ? raw : {}
+        } catch { return {} }
+    }
+
+    function writePendingDownloads(value) {
+        try { localStorage.setItem(PENDING_DOWNLOADS_KEY, JSON.stringify(value)) } catch {}
+    }
+
+    function pendingKey(id) {
+        return pluginIdKey(id)
+    }
+
+    function readTreeActions() {
+        try {
+            const raw = JSON.parse(localStorage.getItem(TREE_ACTIONS_KEY) || '[]')
+            return Array.isArray(raw) ? raw : []
+        } catch { return [] }
+    }
+
+    function writeTreeActions(value) {
+        try { localStorage.setItem(TREE_ACTIONS_KEY, JSON.stringify(value)) } catch {}
+    }
+
+    function queueTreeAction(type, id) {
+        const actions = readTreeActions()
+        if (!actions.some(item => item.type === type && samePluginId(item.id, id))) {
+            actions.push({ type, id, queuedAt: Date.now() })
+            writeTreeActions(actions)
+        }
+        applyQueuedActionFeedback()
+        updateSkillSummary()
+        toast('Queued ' + type + ' ' + pluginDisplayName(id) + ' (waiting for downloads)', undefined, 6000)
+    }
+
+    function applyQueuedActionFeedback() {
+        const panel = state.skillPanel
+        if (!panel) return
+        const actions = readTreeActions()
+        for (const node of panel.querySelectorAll('.skill-node.skill-plugin')) {
+            node.classList.remove('action-queued-start', 'action-queued-update')
+        }
+        for (const action of actions) {
+            if (action.type !== 'start' && action.type !== 'update') continue
+            const node = inlineNode(action.id)
+            if (node) node.classList.add(action.type === 'start' ? 'action-queued-start' : 'action-queued-update')
+        }
+    }
+
+    async function processTreeActions() {
+        if (actionRunning || queueEntries().length) return
+        const actions = readTreeActions()
+        if (!actions.length) return
+        const next = actions.shift()
+        writeTreeActions(actions)
+        actionRunning = true
+        updateSkillSummary()
+        toast((next.type === 'uninstall' ? 'Uninstalling ' : next.type === 'update' ? 'Updating ' : next.type === 'stop' ? 'Stopping ' : 'Starting ')
+            + pluginDisplayName(next.id) + ' (queued)...', undefined, 5000)
+        try {
+            if (next.type === 'uninstall') await performUninstall(next.id)
+            else if (next.type === 'update') await performUpdate(next.id)
+            else await performPowerAction(next.id, next.type === 'stop')
+        } finally {
+            actionRunning = false
+            applyQueuedActionFeedback()
+            updateSkillSummary()
+            if (readTreeActions().length) processTreeActions()
+            else processDownloadQueue()
+        }
+    }
+
+    function treeIdForRepo(repo) {
+        if (!repo || !state.tree) return String(repo).split('/').pop()
+        const ids = []
+        for (const root of state.tree.roots || []) ids.push(...(root.plugins || []))
+        for (const main of state.tree.mains || []) ids.push(...(main.plugins || []))
+        for (const cat of state.tree.categories || []) ids.push(...(cat.plugins || []))
+        const found = ids.find(id => samePluginId(treeMeta(id).repo, repo))
+        return found || String(repo).split('/').pop()
+    }
+
+    async function loadServerDownloads() {
+        let data
+        try { data = await rest('pluginsOptimizer_downloads') } catch { return }
+        const active = new Set()
+        const pending = readPendingDownloads()
+        for (const item of data?.downloads || []) {
+            const repo = item?.repo
+            if (!repo) continue
+            active.add(repo)
+            const id = treeIdForRepo(repo)
+            const key = pendingKey(id)
+            const existing = pending[key]
+            pending[key] = {
+                ...(existing || {}),
+                id,
+                repo,
+                status: 'downloading',
+                startedAt: Number(item.startedAt) || existing?.startedAt || Date.now(),
+                queuedAt: existing?.queuedAt || Number(item.startedAt) || Date.now(),
+                serverOnly: existing ? existing.serverOnly : true,
+            }
+        }
+        for (const [key, record] of Object.entries(pending)) {
+            if (record.serverOnly && !active.has(record.repo)) {
+                delete pending[key]
+                stopDownloadFeedback(record.id)
+            }
+        }
+        state.serverDownloads = active
+        writePendingDownloads(pending)
+        applyPendingDownloadFeedback()
+    }
+
+    function queueEntries() {
+        return Object.entries(readPendingDownloads())
+            .map(([key, record]) => ({ ...record, key, status: record.status || 'downloading' }))
+            .filter(record => record?.id)
+            .sort((a, b) => Number(a.queuedAt || a.startedAt || 0) - Number(b.queuedAt || b.startedAt || 0))
+    }
+
+    function enqueueDownload(id, repo) {
+        const pending = readPendingDownloads()
+        const key = pendingKey(id)
+        if (pending[key]) return false
+        pending[key] = { id, repo, status: 'queued', queuedAt: Date.now() }
+        writePendingDownloads(pending)
+        return true
+    }
+
+    function removePendingDownload(id) {
+        const pending = readPendingDownloads()
+        delete pending[pendingKey(id)]
+        writePendingDownloads(pending)
+    }
+
+    function markDownloading(id) {
+        const pending = readPendingDownloads()
+        const key = pendingKey(id)
+        if (!pending[key]) return false
+        pending[key].status = 'downloading'
+        pending[key].startedAt = Date.now()
+        writePendingDownloads(pending)
+        return true
+    }
+
+    function stopDownloadFeedback(id) {
+        const node = inlineNode(id)
+        const power = node?.querySelector('.skill-icon.power')
+        if (!power) return
+        if (power.__optDownloadTimer) clearInterval(power.__optDownloadTimer)
+        delete power.__optDownloadTimer
+        node.classList.remove('download-active', 'download-queued')
+        power.classList.remove('downloading', 'queued')
+        power.disabled = false
+        if (node.classList.contains('missing')) power.title = 'Install ' + pluginDisplayName(id)
+        node.querySelectorAll('.skill-download-progress').forEach(el => el.remove())
+    }
+
+    function showQueuedFeedback(id, position) {
+        const node = inlineNode(id)
+        const power = node?.querySelector('.skill-icon.power')
+        if (!power) return
+        if (power.__optDownloadTimer) clearInterval(power.__optDownloadTimer)
+        delete power.__optDownloadTimer
+        node.querySelectorAll('.skill-download-progress').forEach(el => el.remove())
+        node.classList.remove('download-active')
+        node.classList.add('download-queued')
+        power.classList.remove('downloading')
+        power.classList.add('queued')
+        power.disabled = false
+        power.title = 'Cancel queued download of ' + pluginDisplayName(id)
+        const label = document.createElement('span')
+        label.className = 'skill-download-progress queued'
+        label.textContent = 'Queued'
+        label.title = 'Queued download position ' + position
+        power.insertAdjacentElement('afterend', label)
+    }
+
+    function startDownloadFeedback(id, startedAt = Date.now()) {
+        const node = inlineNode(id)
+        const power = node?.querySelector('.skill-icon.power')
+        if (!power) return { done() {} }
+        if (power.__optDownloadTimer) clearInterval(power.__optDownloadTimer)
+        node.querySelectorAll('.skill-download-progress').forEach(el => el.remove())
+        node.classList.remove('download-failed', 'download-queued')
+        node.classList.add('download-active')
+        power.classList.remove('queued')
+        power.classList.add('downloading')
+        power.disabled = false
+        power.title = 'Cancel download of ' + pluginDisplayName(id)
+        const label = document.createElement('span')
+        label.className = 'skill-download-progress'
+        const started = Number(startedAt) || Date.now()
+        const paint = () => {
+            const percent = Math.min(95, Math.round((Date.now() - started) / 200))
+            label.textContent = '~' + percent + '%'
+        }
+        paint()
+        power.insertAdjacentElement('afterend', label)
+        const timer = setInterval(paint, 500)
+        power.__optDownloadTimer = timer
+        return {
+            done(ok) {
+                if (power.__optDownloadTimer !== timer) return
+                clearInterval(timer)
+                delete power.__optDownloadTimer
+                node.classList.remove('download-active', 'download-queued')
+                power.classList.remove('downloading')
+                power.disabled = false
+                label.textContent = ok ? '100%' : 'Failed'
+                label.classList.toggle('error', !ok)
+                if (ok) {
+                    node.classList.remove('download-failed')
+                } else {
+                    node.classList.add('download-failed')
+                    setTimeout(() => node.classList.remove('download-failed'), 12000)
+                }
+                setTimeout(() => label.remove(), 1400)
+            },
+        }
+    }
+
+    function cancelDownload(id) {
+        const key = pendingKey(id)
+        const entry = queueEntries().find(item => item.key === key)
+        if (!entry) return
+        canceledDownloads.add(key)
+        const wasActive = entry.status === 'downloading'
+        removePendingDownload(id)
+        if (wasActive) {
+            try { activeDownloadController?.abort() } catch {}
+        }
+        stopDownloadFeedback(id)
+        applyPendingDownloadFeedback()
+        toast((wasActive ? 'Canceled download: ' : 'Removed from queue: ') + pluginDisplayName(id), undefined, 6000)
+        if (!queueEntries().some(item => item.status === 'downloading')) processDownloadQueue()
+    }
+
+    function applyPendingDownloadFeedback(announce = false) {
+        if (!state.skillPanel) return
+        let announced = false
+        const pending = readPendingDownloads()
+        const entries = queueEntries()
+        let queuedPosition = 0
+        for (const key of [...canceledDownloads]) {
+            const row = state.installed.get(key)
+            if (row) {
+                canceledDownloads.delete(key)
+                toast('Canceled download completed on server; left disabled: ' + pluginDisplayName(row.id), 'error', 8000)
+            }
+        }
+        for (const record of entries) {
+            const row = state.installed.get(record.id)
+            const serverActive = record.repo && state.serverDownloads.has(record.repo)
+            if (row && !row.downloading && !serverActive) {
+                delete pending[record.key]
+                toast('Download finished: ' + pluginDisplayName(record.id), undefined, 5000)
+                stopDownloadFeedback(record.id)
+                continue
+            }
+            if (Date.now() - Number(record.queuedAt || record.startedAt || 0) > PENDING_DOWNLOAD_MAX_AGE) {
+                delete pending[record.key]
+                stopDownloadFeedback(record.id)
+                toast('Download timed out: ' + pluginDisplayName(record.id), 'error', 7000)
+                continue
+            }
+            if (record.status === 'downloading') {
+                startDownloadFeedback(record.id, record.startedAt)
+                if (announce && !announced) {
+                    announced = true
+                    const waiting = entries.filter(x => x.status !== 'downloading').length
+                    toast('Downloading ' + pluginDisplayName(record.id) + (waiting ? ` (+${waiting} queued)` : '') + '...', undefined, 5000)
+                }
+            } else {
+                queuedPosition += 1
+                showQueuedFeedback(record.id, queuedPosition)
+            }
+        }
+        writePendingDownloads(pending)
+        updateSkillSummary()
+        if (announce && !announced) {
+            const first = entries.find(x => x.status !== 'downloading')
+            if (first) toast('Queued ' + pluginDisplayName(first.id) + ` (+${entries.length - 1} waiting)`, undefined, 5000)
+        }
     }
 
     function fallbackRepoKey(value) {
@@ -4225,57 +4716,109 @@
         return [...new Set(candidates)]
     }
 
-    async function installTreePlugin(id, repo) {
-        if (!repo) return
+    async function downloadTreePlugin(id, repo, opts = {}) {
         try {
-            let dl
-            try {
-                dl = await apiCall('download_plugin', { id: repo, branch: 'main', stop: false }, { timeout: 180000 })
-            } catch (firstError) {
-                const fallbacks = hugoFallbackRepos(repo, id)
-                if (/Hug3O/i.test(repo)) {
-                    try {
-                        const catalog = await rest('pluginsOptimizer_catalog')
-                        const keys = new Set([fallbackRepoKey(repo), fallbackRepoKey(id)].filter(Boolean))
-                        const hugo = []
-                        const other = []
-                        for (const entry of catalog?.entries || []) {
-                            const candidate = entry?.repo || entry?.id
-                            if (!candidate) continue
-                            const candidateKey = fallbackRepoKey(candidate)
-                            if (!candidateKey || !keys.has(candidateKey)) continue
-                            if (/^(hugo529100|Hugo29100)\//i.test(candidate)) hugo.push(candidate)
-                            else other.push(candidate)
-                        }
-                        fallbacks.push(...hugo, ...other)
-                    } catch {}
-                }
-                let lastError = firstError
-                for (const fallback of [...new Set(fallbacks)]) {
-                    if (fallback === repo) continue
-                    try {
-                        dl = await apiCall('download_plugin', { id: fallback, branch: 'main', stop: false }, { timeout: 180000 })
-                        break
-                    } catch (e) { lastError = e }
-                }
-                if (!dl) throw lastError
+            return await apiCall('download_plugin', { id: repo, branch: 'main', stop: false }, { timeout: 180000, signal: opts.signal })
+        } catch (firstError) {
+            if (opts.signal?.aborted) throw firstError
+            if (firstError?.code === 424) throw firstError
+            const fallbacks = hugoFallbackRepos(repo, id)
+            if (/Hug3O/i.test(repo)) {
+                try {
+                    const catalog = await rest('pluginsOptimizer_catalog')
+                    const keys = new Set([fallbackRepoKey(repo), fallbackRepoKey(id)].filter(Boolean))
+                    const hugo = []
+                    const other = []
+                    for (const entry of catalog?.entries || []) {
+                        const candidate = entry?.repo || entry?.id
+                        if (!candidate) continue
+                        const candidateKey = fallbackRepoKey(candidate)
+                        if (!candidateKey || !keys.has(candidateKey)) continue
+                        if (/^(hugo529100|Hugo29100)\//i.test(candidate)) hugo.push(candidate)
+                        else other.push(candidate)
+                    }
+                    fallbacks.push(...hugo, ...other)
+                } catch {}
             }
-            const installedId = dl?.id || id
-            // A freshly downloaded plugin is written to disk but remains disabled
-            // until it is explicitly enabled. Enable it first, then start it.
-            try { await apiCall('set_plugin', { id: installedId, enabled: true }, { timeout: 30000 }) } catch {}
-            await apiCall('start_plugin', { id: installedId }, { timeout: 30000 })
-            toast('Installed ' + id)
-            await refreshTreeInstalled({ id: installedId, started: true })
+            let lastError = firstError
+            for (const fallback of [...new Set(fallbacks)]) {
+                if (fallback === repo) continue
+                try {
+                    return await apiCall('download_plugin', { id: fallback, branch: 'main', stop: false }, { timeout: 180000, signal: opts.signal })
+                } catch (e) { lastError = e }
+            }
+            throw lastError
+        }
+    }
+
+    async function processDownloadQueue() {
+        if (queueRunning || actionRunning) return
+        const entries = queueEntries()
+        if (entries.some(entry => entry.status === 'downloading')) return
+        const next = entries[0]
+        if (!next) return
+        queueRunning = true
+        markDownloading(next.id)
+        updateSkillSummary()
+        const feedback = startDownloadFeedback(next.id)
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+        activeDownloadController = controller
+        toast('Downloading ' + pluginDisplayName(next.id) + '...', undefined, 5000)
+        try {
+            const dl = await downloadTreePlugin(next.id, next.repo, { signal: controller?.signal })
+            const installedId = dl?.id || next.id
+            removePendingDownload(next.id)
+            removePendingDownload(installedId)
+            feedback.done(true)
+            toast('Downloaded ' + next.id + ' — not enabled', undefined, 6000)
+            await refreshTreeInstalled({ id: installedId, started: false })
             const installedRow = state.installed.get(installedId)
             cachePluginDescription(installedId, {
                 row: installedRow,
-                repo: installedRow?.repo || repo,
-                description: installedRow?.description || '',
-                version: installedRow?.version ?? null,
+                repo: installedRow?.repo || dl?.repo || next.repo,
+                description: installedRow?.description || dl?.description || '',
+                version: installedRow?.version ?? dl?.version ?? null,
             }).catch(() => {})
             scheduleTreeRefresh(900)
-        } catch (e) { toast('Install failed: ' + e.message, 'error') }
+        } catch (e) {
+            if (canceledDownloads.has(pendingKey(next.id))) {
+                // The queue entry was already removed by cancelDownload().
+            } else if (/already downloading|timeout|abort/i.test(e.message || '')) {
+                toast('Still downloading ' + pluginDisplayName(next.id) + '...', undefined, 7000)
+            } else {
+                removePendingDownload(next.id)
+                feedback.done(false)
+                toast('Install failed: ' + e.message, 'error', 8000)
+            }
+        } finally {
+            activeDownloadController = null
+            queueRunning = false
+            applyPendingDownloadFeedback()
+            const remaining = queueEntries()
+            if (!remaining.some(entry => entry.status === 'downloading') && remaining.length)
+                processDownloadQueue()
+            else if (!remaining.length)
+                processTreeActions()
+        }
+    }
+
+    function installTreePlugin(id, repo) {
+        if (!repo) {
+            toast('No repository metadata for ' + id, 'error', 7000)
+            return
+        }
+        const existing = readPendingDownloads()[pendingKey(id)]
+        if (existing) {
+            cancelDownload(id)
+            return
+        }
+        if (enqueueDownload(id, repo)) {
+            const entries = queueEntries()
+            const position = entries.findIndex(entry => pendingKey(entry.id) === pendingKey(id)) + 1
+            applyPendingDownloadFeedback()
+            toast('Queued ' + pluginDisplayName(id) + ` (#${position})`, undefined, 5000)
+            processDownloadQueue()
+        }
     }
 
     function showTreeDesc(anchor, text, pinned = false) {
@@ -4879,8 +5422,9 @@
         if (!tray) return
         const inTree = treePluginIds()
         const stars = Array.isArray(state.tree.stars) ? state.tree.stars : []
-        const unlisted = [...state.installed.keys()].filter(id => !inTree.has(id))
-        const starredMissing = stars.filter(id => !state.installed.has(id) && !inTree.has(id))
+        const inTreeKey = id => inTree.has(id) || inTree.has(pluginMatchKey(id))
+        const unlisted = [...state.installed.keys()].filter(id => !inTreeKey(id))
+        const starredMissing = stars.filter(id => !state.installed.has(id) && !inTreeKey(id))
         const listed = [...unlisted, ...starredMissing]
         if (count) count.textContent = String(listed.length)
         if (trayWrap) {
@@ -4900,7 +5444,7 @@
             item.className = 'skill-tray-item' + (row ? (row.started ? '' : ' stopped') : ' missing starred')
             item.draggable = true
             item.dataset.id = id
-            item.innerHTML = `<strong>${id}</strong><small>v${row?.version ?? '-'}</small>`
+            item.innerHTML = `<strong>${pluginDisplayName(id)}</strong><small>v${row?.version ?? '-'}</small>`
             item.title = row?.description || (starred ? 'Starred missing plugin - install to restore' : 'Drag into a category')
             if (row?.description) {
                 item.addEventListener('mouseenter', () => { if (!state.descPinned) showTreeDesc(item, row.description, false) })
@@ -5014,6 +5558,7 @@
             #optimizer-toast-host { position: fixed; right: 16px; top: 70px; bottom: auto; z-index: 100000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
             .opt-toast { pointer-events: auto; background: color-mix(in srgb, var(--active-bg, #1e1e1e) 82%, #000); color: var(--active-text, #eee) !important; border: 1px solid rgba(255,255,255,.14); border-left: 4px solid #ff9800; border-radius: 6px; padding: 9px 13px; font-size: .82rem; box-shadow: 0 6px 20px rgba(0,0,0,.35); max-width: min(460px, 80vw); transition: opacity .2s, transform .2s; }
             .opt-toast-error { border-left-color: #ef5350; }
+            @keyframes opt-error-border { 0%, 100% { border-color: rgba(239,83,80,.35); } 50% { border-color: rgba(239,83,80,.95); } }
             .opt-toast-out { opacity: 0; transform: translateY(-6px); }
             .opt-confirm { position: fixed; inset: 0; z-index: 100001; display: flex; align-items: center; justify-content: center; padding: 20px; background: transparent !important; pointer-events: none; }
             .opt-confirm-box { width: min(420px, 92vw); padding: 14px 16px; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.6)); border-radius: 6px; background: #1e1e1e; color: var(--active-text, #eee) !important; box-shadow: 0 10px 30px rgba(0,0,0,.5); pointer-events: auto; }
@@ -5028,7 +5573,7 @@
             #optimizer-panel .opt-test-result.opt-fail { color: #ef5350 !important; }
             #optimizer-panel .opt-chip-x:hover { color: #ef5350 !important; }
             #optimizer-toast-host .opt-toast { background-color: color-mix(in srgb, var(--active-bg, #1e1e1e) 82%, #000) !important; color: var(--active-text, #eee) !important; border-color: rgba(255,255,255,.14) !important; }
-            #optimizer-toast-host .opt-toast-error { border-left-color: #ef5350 !important; }
+            #optimizer-toast-host .opt-toast-error { border-color: rgba(239,83,80,.95) !important; border-left: 4px solid #ef5350 !important; animation: opt-error-border 1.8s ease-in-out infinite; }
             #optimizer-hide-toggle .opt-badge { background-color: #ff9900 !important; color: #171717 !important; }
             #optimizer-hide-toggle.opt-active { color: #ff9800 !important; }
             .MuiDataGrid-row .opt-row-hide.opt-restore { color: #ff9800 !important; }
@@ -5201,6 +5746,26 @@
             .skill-settings-online p { margin: 0; line-height: 1.38; color: var(--active-text, #eee) !important; opacity: .9; }
             .skill-settings-online small { opacity: .65; word-break: break-all; font-size: .7rem; }
             .skill-settings-repo { margin: 0 0 5px; font-size: .7rem; color: var(--active-comment-contrast, #aaa) !important; opacity: .75; word-break: break-all; }
+            .skill-plugin.download-active .skill-card { outline: 2px solid rgba(33,150,243,.55); outline-offset: 1px; box-shadow: 0 0 9px 2px rgba(33,150,243,.3) !important; animation: opt-download-outline-blue 2.2s ease-in-out infinite; }
+            .skill-plugin.download-queued .skill-card { outline: 2px solid rgba(156,39,176,.55); outline-offset: 1px; box-shadow: 0 0 9px 2px rgba(156,39,176,.3) !important; animation: opt-download-outline-purple 2.2s ease-in-out infinite; }
+            .skill-plugin.action-queued-start .skill-card { outline: 2px solid rgba(76,175,80,.55); outline-offset: 1px; box-shadow: 0 0 9px 2px rgba(76,175,80,.3) !important; animation: opt-action-outline-green 2.2s ease-in-out infinite; }
+            .skill-plugin.action-queued-update .skill-card { outline: 2px solid rgba(255,193,7,.55); outline-offset: 1px; box-shadow: 0 0 9px 2px rgba(255,193,7,.3) !important; animation: opt-action-outline-yellow 2.2s ease-in-out infinite; }
+            @keyframes opt-download-outline-blue { 0%, 100% { outline-color: rgba(33,150,243,.25); } 50% { outline-color: rgba(100,181,246,.8); } }
+            @keyframes opt-download-outline-purple { 0%, 100% { outline-color: rgba(156,39,176,.25); } 50% { outline-color: rgba(186,104,200,.8); } }
+            @keyframes opt-action-outline-green { 0%, 100% { outline-color: rgba(76,175,80,.25); } 50% { outline-color: rgba(129,199,132,.8); } }
+            @keyframes opt-action-outline-yellow { 0%, 100% { outline-color: rgba(255,193,7,.25); } 50% { outline-color: rgba(255,213,79,.8); } }
+            .skill-icon.update { color: #ffc107 !important; }
+            .skill-icon.power.downloading { animation: opt-download-flash .55s ease-in-out infinite alternate; color: var(--active-focus-color, #ff9800) !important; }
+            .skill-icon.power.queued { opacity: .7; color: var(--active-comment-contrast, #aaa) !important; }
+            .skill-download-progress.queued { color: var(--active-comment-contrast, #aaa) !important; }
+            .skill-plugin.plugin-error .skill-card { border-color: #ef5350 !important; }
+            .skill-plugin-error { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; background: #ef5350 !important; color: #fff !important; font-size: .68rem; font-weight: 700; cursor: help; }
+            .skill-plugin.has-update .skill-card { border-color: rgba(255,193,7,.9) !important; outline: 2px solid rgba(255,193,7,.55); outline-offset: 1px; box-shadow: 0 0 10px 2px rgba(255,193,7,.45) !important; animation: opt-update-outline 2.2s ease-in-out infinite; }
+            @keyframes opt-update-outline { 0%, 100% { outline-color: rgba(255,193,7,.25); border-color: rgba(255,193,7,.45); } 50% { outline-color: rgba(255,213,79,.8); border-color: #ffc107; } }
+            .skill-plugin.download-failed .skill-card { border-color: #ef5350 !important; animation: opt-error-border 1.8s ease-in-out infinite; box-shadow: 0 0 0 rgba(0,0,0,0) !important; }
+            .skill-download-progress { flex: 0 0 auto; min-width: 30px; font-size: .62rem; line-height: 1; color: var(--active-focus-color, #ff9800) !important; white-space: nowrap; }
+            .skill-download-progress.error { color: #ef5350 !important; }
+            @keyframes opt-download-flash { from { opacity: .3; } to { opacity: 1; } }
             .skill-field-block { margin: 4px 0; }
             .skill-field-help { margin: 2px 0 0; font-size: .68rem; line-height: 1.32; color: var(--active-comment-contrast, #aaa) !important; opacity: .9; }
             .skill-settings-tab-block { margin: 5px 0 7px; }
@@ -5398,6 +5963,16 @@
             else if (state.active) applyHidden()
             else if (onInstalledList()) restoreNativeSort()
         }, 2500)
+        setInterval(() => { if (state.skillActive) loadTreeUpdates() }, 600000)
+        setInterval(async () => {
+            if (!state.skillActive) return
+            await loadServerDownloads()
+            if (!Object.keys(readPendingDownloads()).length) return
+            try { await refreshTreeInstalled() } catch {}
+            applyPendingDownloadFeedback()
+            processDownloadQueue()
+            processTreeActions()
+        }, 5000)
     }
 
     if (document.body) start()
