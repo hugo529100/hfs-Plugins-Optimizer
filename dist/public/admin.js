@@ -107,6 +107,9 @@
         settingsEl: null,
         settingsHeight: 330,
         settingsPanels: new Map(),
+        outputId: null,
+        outputEl: null,
+        outputTimer: null,
         ui: { openSettings: [], settingsHeights: {}, expandedHidden: [] },
         uiLoaded: false,
         uiRestored: false,
@@ -248,11 +251,18 @@
     }
 
     function paintConfirmSurface(overlay, box) {
-        const pageBg = getComputedStyle(document.body).backgroundColor
-        const opaque = pageBg && pageBg !== 'rgba(0, 0, 0, 0)' && pageBg !== 'transparent'
-        const surface = opaque
-            ? `color-mix(in srgb, ${pageBg} 88%, #000)`
-            : '#0b0800'
+        let surface = ''
+        try {
+            const card = state.skillPanel?.querySelector('.skill-card')
+            if (card) surface = getComputedStyle(card).backgroundColor
+        } catch {}
+        if (!surface || surface === 'rgba(0, 0, 0, 0)' || surface === 'transparent') {
+            try {
+                surface = getComputedStyle(document.documentElement)
+                    .getPropertyValue('--active-button-bg').trim()
+            } catch {}
+        }
+        if (!surface) surface = '#1b1b1b'
         overlay.style.setProperty('background-color', 'transparent', 'important')
         overlay.style.setProperty('pointer-events', 'none', 'important')
         box.style.setProperty('background-color', surface, 'important')
@@ -1379,6 +1389,7 @@
         install: 'M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z',
         update: 'M16 18v2H8v-2h8zM11 7.99V16h2V7.99h3L12 4 8 7.99h3z',
         expand: 'M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z',
+        output: 'M9.4 16.6 4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0 4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z',
     }
 
     function treeIcon(name, size = 18) {
@@ -1595,13 +1606,19 @@
             state.treeZoom = next
             state.treePan.x = cx - p.worldX * next
             state.treePan.y = cy - p.worldY * next
-            applyWorldTransform()
+            scheduleWorldTransform()
             ev.preventDefault()
         }, { passive: false })
         const endPinch = ev => {
             if (ev.touches.length < 2) {
                 state.pinching = false
                 state.pinch = null
+                if (state.worldFrame) {
+                    cancelAnimationFrame(state.worldFrame)
+                    state.worldFrame = 0
+                }
+                snapTreeView()
+                applyWorldTransform()
                 saveTreeView()
             }
         }
@@ -1753,6 +1770,16 @@
         }, delay)
     }
 
+    function pluginVersionFor(id) {
+        const row = state.installed?.get(id)
+        if (row?.version != null) return String(row.version)
+        const allMeta = state.tree?.pluginMeta || {}
+        const meta = allMeta[id]
+            || Object.entries(allMeta).find(([key]) => samePluginId(key, id))?.[1]
+            || {}
+        return meta.version != null ? String(meta.version) : ''
+    }
+
     function canonicalizeTreeIds() {
         const tree = state.tree
         if (!tree) return
@@ -1762,10 +1789,21 @@
             // hfs- and -main are only naming variants of the same plugin.
             return pluginMatchKey(row.id) === pluginMatchKey(id) || pluginIdKey(row.id) === pluginIdKey(id) ? id : row.id
         }
+        const aliases = new Map()
+        const seen = []
         const remapList = list => {
             const out = []
             for (const id of list || []) {
                 const canonical = remap(id)
+                const key = pluginMatchKey(canonical)
+                const version = pluginVersionFor(canonical)
+                const collision = seen.find(item => item.key === key
+                    && (!item.version || !version || item.version === version))
+                if (collision) {
+                    aliases.set(id, collision.id)
+                    continue
+                }
+                seen.push({ id: canonical, key, version })
                 if (!out.includes(canonical)) out.push(canonical)
             }
             return out
@@ -1775,24 +1813,29 @@
         for (const cat of tree.categories || []) cat.plugins = remapList(cat.plugins)
         const stars = []
         for (const id of tree.stars || []) {
-            const canonical = remap(id)
+            const canonical = aliases.get(id) || remap(id)
             if (!stars.includes(canonical)) stars.push(canonical)
         }
         tree.stars = stars
         const positions = {}
         for (const [key, value] of Object.entries(tree.positions || {})) {
             if (key.startsWith('plugin:')) {
-                const canonical = 'plugin:' + remap(key.slice(7))
+                const canonical = 'plugin:' + (aliases.get(key.slice(7)) || remap(key.slice(7)))
                 if (!positions[canonical]) positions[canonical] = value
             } else {
                 positions[key] = value
             }
         }
         tree.positions = positions
+        for (const [removed, kept] of aliases) {
+            if (tree.pluginColors?.[removed] && !tree.pluginColors[kept])
+                tree.pluginColors[kept] = tree.pluginColors[removed]
+            if (tree.pluginColors) delete tree.pluginColors[removed]
+        }
         if (tree.pluginMeta && typeof tree.pluginMeta === 'object') {
             const meta = {}
             for (const [id, value] of Object.entries(tree.pluginMeta)) {
-                const canonical = remap(id)
+                const canonical = aliases.get(id) || remap(id)
                 if (!meta[canonical]) meta[canonical] = value
             }
             tree.pluginMeta = meta
@@ -2066,13 +2109,9 @@
         }
     }
 
-    function inlineExtra(id) {
-        let h = 0
-        const d = state.descPanels.get(id)
-        if (d) h += d.height + 4
-        const s = state.settingsPanels.get(id)
-        if (s) h += s.height + 4
-        return h
+    function inlineExtra() {
+        // Inline panels are overlays; they must not push following plugins.
+        return 0
     }
 
     function computeTreeLayout() {
@@ -2329,11 +2368,26 @@
         }, 120)
     }
 
+    function snapTreeView() {
+        state.treePan.x = Math.round(state.treePan.x)
+        state.treePan.y = Math.round(state.treePan.y)
+        state.treeZoom = Math.round((Number(state.treeZoom) || 1) * 100) / 100
+    }
+
     function applyWorldTransform() {
         const world = state.skillPanel?.querySelector('[data-skill-world]')
         if (!world) return
         world.style.transform = `translate(${state.treePan.x}px, ${state.treePan.y}px) scale(${state.treeZoom})`
+        if (!state.pinching) updateInlinePanelScale()
         saveTreeViewSoon()
+    }
+
+    function scheduleWorldTransform() {
+        if (state.worldFrame) return
+        state.worldFrame = requestAnimationFrame(() => {
+            state.worldFrame = 0
+            applyWorldTransform()
+        })
     }
 
     function fitTree() {
@@ -2383,6 +2437,8 @@
         }
         const up = () => {
             viewport.classList.remove('panning')
+            snapTreeView()
+            applyWorldTransform()
             saveTreeView()
             window.removeEventListener('pointermove', move)
             window.removeEventListener('pointerup', up)
@@ -2402,6 +2458,7 @@
         state.treePan.x = mx - (mx - state.treePan.x) * (next / old)
         state.treePan.y = my - (my - state.treePan.y) * (next / old)
         state.treeZoom = next
+        snapTreeView()
         applyWorldTransform()
         saveTreeView()
     }
@@ -2417,6 +2474,7 @@
         state.treePan.x = mx - (mx - state.treePan.x) * (next / old)
         state.treePan.y = my - (my - state.treePan.y) * (next / old)
         state.treeZoom = next
+        snapTreeView()
         applyWorldTransform()
         saveTreeView()
     }
@@ -3317,6 +3375,99 @@
         }
     }
 
+    function updatePluginOutputPosition() {
+        if (!state.outputEl || !state.outputId) return
+        const d = state.descPanels.get(state.outputId)
+        const s = state.settingsPanels.get(state.outputId)
+        let top = 52
+        if (d) top += d.height
+        if (s) top += s.height
+        state.outputEl.style.top = (top + 6) + 'px'
+    }
+
+    function closePluginOutput() {
+        if (state.outputTimer) clearInterval(state.outputTimer)
+        state.outputTimer = null
+        state.outputEl?.closest('.skill-node')?.classList.remove('output-open')
+        state.outputEl?.remove()
+        state.outputEl = null
+        state.outputId = null
+    }
+
+    async function refreshPluginOutput() {
+        const pop = state.outputEl
+        const id = state.outputId
+        if (!pop || !id || !pop.isConnected) return
+        const log = pop.querySelector('.skill-output-log')
+        try {
+            const data = await apiCall('get_plugin_log', { id }, { timeout: 15000 })
+            if (!state.outputEl || state.outputId !== id) return
+            const list = Array.isArray(data?.list) ? data.list : []
+            const text = list.map(line => {
+                if (typeof line === 'string') return line
+                const ts = line?.ts ? new Date(line.ts).toLocaleTimeString() : ''
+                const level = line?.type || line?.level || ''
+                const msg = line?.msg ?? line?.message ?? line?.text ?? JSON.stringify(line)
+                return [ts, level, msg].filter(Boolean).join(' ')
+            }).join('\n')
+            log.textContent = text || 'No output yet.'
+            const count = pop.querySelector('.skill-output-count')
+            if (count) count.textContent = list.length ? ` (${list.length})` : ''
+        } catch (e) {
+            if (state.outputEl === pop) log.textContent = 'Could not load output: ' + (e.message || 'unknown error')
+        }
+    }
+
+    function togglePluginOutput(id) {
+        if (state.outputId === id && state.outputEl?.isConnected) {
+            closePluginOutput()
+            return
+        }
+        closePluginOutput()
+        const node = [...(state.skillPanel?.querySelectorAll('.skill-node') || [])]
+            .find(el => el.dataset.id === id)
+        if (!node) return
+        const pop = document.createElement('div')
+        pop.className = 'skill-output-pop'
+        const head = document.createElement('div')
+        head.className = 'skill-output-head'
+        const title = document.createElement('span')
+        title.className = 'skill-output-title'
+        title.textContent = 'Plugin output ' + pluginDisplayName(id)
+        const count = document.createElement('small')
+        count.className = 'skill-output-count'
+        title.appendChild(count)
+        const refresh = document.createElement('button')
+        refresh.type = 'button'
+        refresh.className = 'skill-output-refresh'
+        refresh.innerHTML = treeIcon('refresh', 12)
+        refresh.title = 'Refresh output'
+        refresh.addEventListener('click', ev => { ev.stopPropagation(); refreshPluginOutput() })
+        const close = document.createElement('button')
+        close.type = 'button'
+        close.className = 'skill-output-close'
+        close.textContent = '×'
+        close.title = 'Close output'
+        close.addEventListener('click', ev => { ev.stopPropagation(); closePluginOutput() })
+        head.append(title, refresh, close)
+        const log = document.createElement('pre')
+        log.className = 'skill-output-log'
+        log.textContent = 'Loading...'
+        pop.append(head, log)
+        pop.addEventListener('click', ev => ev.stopPropagation())
+        node.classList.add('output-open')
+        node.appendChild(pop)
+        const surface = getComputedStyle(pop).backgroundColor
+        head.style.setProperty('background-color', surface, 'important')
+        log.style.setProperty('background-color', surface, 'important')
+        state.outputId = id
+        state.outputEl = pop
+        updatePluginOutputPosition()
+        applyInlinePanelAccent(id)
+        refreshPluginOutput()
+        state.outputTimer = setInterval(refreshPluginOutput, 2500)
+    }
+
     function closeInlineSettings(id) {
         const panel = state.settingsPanels.get(id)
         if (!panel) return
@@ -3361,7 +3512,7 @@
         el.append(head, body, resizer)
         const savedHeight = Number(state.ui?.settingsHeights?.[id])
         const initialHeight = Number.isFinite(savedHeight)
-            ? Math.max(120, Math.min(500, Math.round(savedHeight)))
+            ? Math.max(120, Math.round(savedHeight))
             : 260
         const panel = {
             id, el, head, body, resizer, save, height: initialHeight,
@@ -3377,13 +3528,15 @@
             panel.el.style.height = previousHeight
             const headHeight = panel.head.offsetHeight || 0
             const resizerHeight = panel.resizer?.offsetHeight || 10
-            const needed = Math.max(120, Math.min(500, Math.ceil(headHeight + resizerHeight + contentHeight + 2)))
+            const needed = Math.max(120, Math.ceil(headHeight + resizerHeight + contentHeight + 2))
             if (!panel.hasSavedHeight || needed > panel.height) {
                 panel.height = needed
                 panel.el.style.height = needed + 'px'
                 state.ui.settingsHeights[id] = needed
                 queueUiSave()
+                updatePluginOutputPosition()
             }
+
         }
         const scheduleFit = () => {
             if (panel.fitPending) return
@@ -3408,7 +3561,7 @@
             const startY = ev.clientY
             const startH = panel.height
             const move = e => {
-                const h = Math.max(120, Math.min(500, startH + (e.clientY - startY) / (state.treeZoom || 1)))
+                const h = Math.max(120, startH + (e.clientY - startY) / (state.treeZoom || 1))
                 panel.height = Math.round(h)
                 el.style.height = panel.height + 'px'
             }
@@ -3429,6 +3582,52 @@
         return panel
     }
 
+    function applyInlinePanelAccent(id) {
+        const card = inlineNode(id)?.querySelector('.skill-card')
+        if (!card) return
+        const style = getComputedStyle(card)
+        const color = style.borderLeftColor
+        if (!color || color === 'rgba(0, 0, 0, 0)' || color === 'transparent') return
+        const width = style.borderLeftWidth || '1px'
+        const panels = [
+            state.descPanels.get(id)?.el,
+            state.settingsPanels.get(id)?.el,
+            state.outputId === id ? state.outputEl : null,
+        ].filter(Boolean)
+        for (const el of panels) {
+            el.style.setProperty('border-left-style', 'solid', 'important')
+            el.style.setProperty('border-left-width', width, 'important')
+            el.style.setProperty('border-left-color', color, 'important')
+            const resizer = el.querySelector('.skill-inline-resizer')
+            if (resizer) {
+                resizer.style.setProperty('--panel-accent', color)
+                resizer.style.setProperty('border-bottom-style', 'solid', 'important')
+                resizer.style.setProperty('border-bottom-width', '2px', 'important')
+                resizer.style.setProperty('border-bottom-color', color, 'important')
+            }
+        }
+    }
+
+    function updateInlinePanelScale() {
+        for (const [id, d] of state.descPanels) {
+            d.el.style.width = '100%'
+            d.el.style.left = '0'
+            d.el.style.transform = 'none'
+            d.el.style.top = '52px'
+        }
+        for (const [id, s] of state.settingsPanels) {
+            const d = state.descPanels.get(id)
+            s.el.style.width = '100%'
+            s.el.style.left = '0'
+            s.el.style.transform = 'none'
+            s.el.style.top = (52 + (d ? d.height : 0)) + 'px'
+        }
+        updatePluginOutputPosition()
+        for (const id of new Set([...state.descPanels.keys(), ...state.settingsPanels.keys()]))
+            applyInlinePanelAccent(id)
+        if (state.outputId) applyInlinePanelAccent(state.outputId)
+    }
+
     function dockInlinePanels() {
         const panel = state.skillPanel
         if (!panel) return
@@ -3441,7 +3640,6 @@
             }
             if (d.el.parentElement !== node) node.appendChild(d.el)
             d.el.hidden = false
-            d.el.style.top = '56px'
         }
         for (const [id, s] of state.settingsPanels) {
             const node = inlineNode(id)
@@ -3452,10 +3650,58 @@
             }
             if (s.el.parentElement !== node) node.appendChild(s.el)
             s.el.hidden = false
-            const d = state.descPanels.get(id)
-            s.el.style.top = (56 + (d ? d.height + 4 : 0)) + 'px'
             s.el.style.height = s.height + 'px'
             node.classList.add('settings-open')
+        }
+        updateInlinePanelScale()
+        applySettingsBranchFocus()
+    }
+
+    function applySettingsBranchFocus() {
+        const panel = state.skillPanel
+        if (!panel) return
+        const nodes = [...panel.querySelectorAll('.skill-node')]
+        for (const node of nodes) node.classList.remove('settings-focus')
+        const focusedIds = [...state.settingsPanels.keys()]
+        if (!focusedIds.length) return
+        const markKey = key => {
+            const node = nodes.find(n => n.dataset.key === key)
+            if (node) node.classList.add('settings-focus')
+        }
+        for (const id of focusedIds) {
+            const category = (state.tree?.categories || []).find(cat =>
+                (cat.plugins || []).some(pid => samePluginId(pid, id)))
+            const main = category
+                ? (state.tree?.mains || []).find(m => m.id === category.main)
+                : (state.tree?.mains || []).find(m => (m.plugins || []).some(pid => samePluginId(pid, id)))
+            const root = main
+                ? (state.tree?.roots || []).find(r => r.id === main.root)
+                : (state.tree?.roots || []).find(r => (r.plugins || []).some(pid => samePluginId(pid, id)))
+            if (root) markKey('root:' + root.id)
+            if (main) markKey('main:' + main.id)
+            if (category) markKey('cat:' + category.id)
+            const categories = state.tree?.categories || []
+            const relatedCats = category ? categories.filter(cat => {
+                let current = cat
+                const seen = new Set()
+                while (current?.parent && !seen.has(current.id)) {
+                    seen.add(current.id)
+                    if (current.parent === category.id) return true
+                    current = categories.find(c => c.id === current.parent)
+                }
+                return false
+            }) : []
+            const pluginIds = new Set([id])
+            if (category) for (const pid of category.plugins || []) pluginIds.add(pid)
+            for (const cat of relatedCats) for (const pid of cat.plugins || []) pluginIds.add(pid)
+            if (main) for (const pid of main.plugins || []) pluginIds.add(pid)
+            if (root && !main) for (const pid of root.plugins || []) pluginIds.add(pid)
+            for (const pid of pluginIds) {
+                const node = nodes.find(n => n.dataset.key === 'plugin:' + pid)
+                if (node) node.classList.add('settings-focus')
+            }
+            const focusNode = nodes.find(n => n.dataset.key === 'plugin:' + id)
+            if (focusNode) focusNode.classList.add('settings-open')
         }
     }
 
@@ -3579,12 +3825,21 @@
         const hasFields = Object.keys(fields).length > 0
         if (hasFields) {
             renderConfigForm(canonical, row, fields, values, panel)
+            const metaBlock = document.createElement('div')
+            metaBlock.className = 'skill-settings-meta'
             if (meta.repo) {
                 const repo = document.createElement('div')
                 repo.className = 'skill-settings-repo'
                 repo.textContent = 'Repo: ' + meta.repo
-                panel.body.insertBefore(repo, panel.body.firstChild)
+                metaBlock.appendChild(repo)
             }
+            if (description) {
+                const text = document.createElement('p')
+                text.className = 'skill-settings-description'
+                text.textContent = description
+                metaBlock.appendChild(text)
+            }
+            if (metaBlock.childNodes.length) panel.body.insertBefore(metaBlock, panel.body.firstChild)
             if (fetchError) {
                 const note = document.createElement('div')
                 note.className = 'skill-settings-empty'
@@ -3750,23 +4005,6 @@
             actions.appendChild(update)
         }
         actions.appendChild(star)
-        if (description) {
-            const info = document.createElement('button')
-            info.type = 'button'
-            info.className = 'skill-icon info'
-            info.innerHTML = treeIcon('info', 15)
-            info.title = 'Description'
-            if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
-                info.addEventListener('mouseenter', () => showTreeDesc(info, description, false))
-                info.addEventListener('mouseleave', () => hideTreeDescSoon())
-            }
-            info.addEventListener('click', ev => {
-                ev.stopPropagation()
-                hideTreeDescSoon()
-                toggleInlineDescription(item.id, description)
-            })
-            actions.appendChild(info)
-        }
         const gear = document.createElement('button')
         gear.type = 'button'
         gear.className = 'skill-icon'
@@ -3781,6 +4019,18 @@
             del.title = 'Uninstall ' + item.id
             del.addEventListener('click', ev => { ev.stopPropagation(); uninstallTreePlugin(item.id) })
             actions.appendChild(del)
+        }
+        if (installed) {
+            const output = document.createElement('button')
+            output.type = 'button'
+            output.className = 'skill-icon output'
+            output.innerHTML = treeIcon('output', 15)
+            output.title = 'Plugin output'
+            output.addEventListener('click', ev => {
+                ev.stopPropagation()
+                togglePluginOutput(item.id)
+            })
+            actions.appendChild(output)
         }
         actions.appendChild(gear)
         const grip = document.createElement('span')
@@ -4528,6 +4778,7 @@
         const pending = readPendingDownloads()
         const key = pendingKey(id)
         if (pending[key]) return false
+        if (Object.keys(pending).length >= 1) return false
         pending[key] = { id, repo, status: 'queued', queuedAt: Date.now() }
         writePendingDownloads(pending)
         return true
@@ -4818,6 +5069,8 @@
             applyPendingDownloadFeedback()
             toast('Queued ' + pluginDisplayName(id) + ` (#${position})`, undefined, 5000)
             processDownloadQueue()
+        } else {
+            toast('Download queue is full — only one download is allowed at a time', 'error', 7000)
         }
     }
 
@@ -5239,12 +5492,364 @@
         } catch { return true }
     }
 
+    function createArrayEditor(field, list, onChange) {
+        const wrap = document.createElement('div')
+        wrap.className = 'skill-array-editor'
+        const table = document.createElement('div')
+        table.className = 'skill-array-table'
+        wrap.appendChild(table)
+        const fields = field?.fields && typeof field.fields === 'object' ? field.fields : {}
+        const keys = Object.keys(fields)
+        const cols = keys.filter(key => fields[key]?.type !== 'array')
+        const nested = keys.filter(key => fields[key]?.type === 'array')
+        const template = `grid-template-columns: repeat(${Math.max(1, cols.length)}, minmax(86px, 1fr)) 26px`
+        const makeSwitch = (checked, onchange) => {
+            const sw = document.createElement('span')
+            sw.className = 'skill-switch'
+            const input = document.createElement('input')
+            input.type = 'checkbox'
+            input.checked = !!checked
+            input.addEventListener('change', onchange)
+            sw.appendChild(input)
+            return sw
+        }
+        const header = document.createElement('div')
+        header.className = 'skill-array-row skill-array-head'
+        header.style.gridTemplateColumns = template
+        for (const key of cols) {
+            const cell = document.createElement('span')
+            cell.textContent = fields[key]?.label || key
+            cell.title = fields[key]?.label || key
+            header.appendChild(cell)
+        }
+        header.appendChild(document.createElement('span'))
+        table.appendChild(header)
+        const renderRows = () => {
+            table.querySelectorAll('.skill-array-data').forEach(node => node.remove())
+            list.forEach((row, index) => {
+                if (!row || typeof row !== 'object') row = list[index] = {}
+                const rowEl = document.createElement('div')
+                rowEl.className = 'skill-array-row skill-array-data'
+                rowEl.style.gridTemplateColumns = template
+                rowEl.dataset.index = String(index)
+                for (const key of cols) {
+                    const sub = fields[key] || {}
+                    const cell = document.createElement('div')
+                    cell.className = 'skill-array-cell'
+                    let input
+                    if (sub.type === 'boolean') {
+                        input = makeSwitch(row[key] ?? sub.defaultValue, () => {
+                            row[key] = !!input.checked
+                            onChange()
+                        })
+                    } else if (sub.type === 'number') {
+                        input = document.createElement('input')
+                        input.type = 'number'
+                        if (sub.min != null) input.min = sub.min
+                        if (sub.max != null) input.max = sub.max
+                        input.value = row[key] ?? sub.defaultValue ?? ''
+                        input.addEventListener('input', () => {
+                            row[key] = input.value === '' ? undefined : Number(input.value)
+                            onChange()
+                        })
+                    } else if (sub.type === 'select' && sub.options) {
+                        input = document.createElement('select')
+                        for (const opt of configOptions(sub)) {
+                            const o = document.createElement('option')
+                            o.value = opt.value
+                            o.textContent = opt.label
+                            input.appendChild(o)
+                        }
+                        input.value = String(row[key] ?? sub.defaultValue ?? '')
+                        input.addEventListener('change', () => {
+                            row[key] = input.value
+                            onChange()
+                        })
+                    } else {
+                        input = document.createElement('input')
+                        input.type = sub.type === 'password' ? 'password' : 'text'
+                        input.value = row[key] ?? sub.defaultValue ?? ''
+                        input.addEventListener('input', () => {
+                            row[key] = input.value
+                            onChange()
+                        })
+                    }
+                    cell.appendChild(input)
+                    rowEl.appendChild(cell)
+                }
+                const remove = document.createElement('button')
+                remove.type = 'button'
+                remove.className = 'skill-array-remove'
+                remove.textContent = '×'
+                remove.title = 'Remove this row'
+                remove.addEventListener('click', () => {
+                    list.splice(index, 1)
+                    renderRows()
+                    onChange()
+                })
+                rowEl.appendChild(remove)
+                for (const key of nested) {
+                    const sub = fields[key] || {}
+                    const details = document.createElement('details')
+                    details.className = 'skill-array-nested'
+                    const summary = document.createElement('summary')
+                    const childList = Array.isArray(row[key]) ? row[key] : (row[key] = Array.isArray(sub.defaultValue) ? sub.defaultValue : [])
+                    summary.textContent = (sub.label || key) + ` (${childList.length})`
+                    details.appendChild(summary)
+                    details.appendChild(createArrayEditor(sub, childList, onChange))
+                    rowEl.appendChild(details)
+                }
+                table.appendChild(rowEl)
+            })
+        }
+        renderRows()
+        const add = document.createElement('button')
+        add.type = 'button'
+        add.className = 'skill-array-add'
+        add.textContent = '+ Add'
+        add.addEventListener('click', () => {
+            const row = {}
+            for (const key of keys) {
+                const sub = fields[key] || {}
+                row[key] = sub.type === 'array'
+                    ? (Array.isArray(sub.defaultValue) ? structuredClone(sub.defaultValue) : [])
+                    : (sub.defaultValue ?? (sub.type === 'boolean' ? false : ''))
+            }
+            list.push(row)
+            renderRows()
+            onChange()
+        })
+        wrap.appendChild(add)
+        return wrap
+    }
+
+    function arrayRowDefaults(field) {
+        const row = {}
+        for (const [key, sub] of Object.entries(field?.fields || {})) {
+            row[key] = sub?.type === 'array'
+                ? (Array.isArray(sub.defaultValue) ? structuredClone(sub.defaultValue) : [])
+                : (sub?.defaultValue ?? (sub?.type === 'boolean' ? false : ''))
+        }
+        return row
+    }
+
+    function openArrayRowDialog(field, initial, title, onSave) {
+        const overlay = document.createElement('div')
+        overlay.className = 'opt-confirm skill-array-dialog'
+        const box = document.createElement('div')
+        box.className = 'opt-confirm-box skill-array-dialog-box'
+        const heading = document.createElement('div')
+        heading.className = 'skill-array-dialog-title'
+        heading.textContent = title
+        const form = document.createElement('div')
+        form.className = 'skill-array-dialog-form'
+        const draft = initial ? structuredClone(initial) : arrayRowDefaults(field)
+        const fields = field?.fields || {}
+        for (const [key, sub] of Object.entries(fields)) {
+            if (sub?.type === 'array') continue
+            const wrap = document.createElement('label')
+            wrap.className = 'skill-array-dialog-field'
+            const label = document.createElement('span')
+            label.textContent = sub?.label || key
+            wrap.appendChild(label)
+            let input
+            if (sub?.type === 'boolean') {
+                const sw = document.createElement('span')
+                sw.className = 'skill-switch'
+                input = document.createElement('input')
+                input.type = 'checkbox'
+                input.checked = !!draft[key]
+                input.addEventListener('change', () => { draft[key] = !!input.checked })
+                sw.appendChild(input)
+                wrap.appendChild(sw)
+            } else if (sub?.type === 'select' && sub.options) {
+                input = document.createElement('select')
+                for (const opt of configOptions(sub)) {
+                    const o = document.createElement('option')
+                    o.value = opt.value
+                    o.textContent = opt.label
+                    input.appendChild(o)
+                }
+                input.value = String(draft[key] ?? sub.defaultValue ?? '')
+                input.addEventListener('change', () => { draft[key] = input.value })
+                wrap.appendChild(input)
+            } else {
+                input = document.createElement('input')
+                input.type = sub?.type === 'password' ? 'password' : sub?.type === 'number' ? 'number' : 'text'
+                if (sub?.min != null) input.min = sub.min
+                if (sub?.max != null) input.max = sub.max
+                input.value = draft[key] ?? sub.defaultValue ?? ''
+                input.addEventListener('input', () => {
+                    draft[key] = sub?.type === 'number'
+                        ? (input.value === '' ? undefined : Number(input.value))
+                        : input.value
+                })
+                wrap.appendChild(input)
+            }
+            form.appendChild(wrap)
+        }
+        for (const [key, sub] of Object.entries(fields)) {
+            if (sub?.type !== 'array') continue
+            const nestedWrap = document.createElement('div')
+            nestedWrap.className = 'skill-array-dialog-nested'
+            const label = document.createElement('div')
+            label.className = 'skill-array-dialog-label'
+            label.textContent = sub.label || key
+            nestedWrap.appendChild(label)
+            if (!Array.isArray(draft[key])) draft[key] = []
+            nestedWrap.appendChild(createArrayEditorNative(sub, draft[key], () => {}))
+            form.appendChild(nestedWrap)
+        }
+        const actions = document.createElement('div')
+        actions.className = 'opt-confirm-actions'
+        const cancel = document.createElement('button')
+        cancel.type = 'button'
+        cancel.className = 'opt-btn'
+        cancel.textContent = 'Cancel'
+        const save = document.createElement('button')
+        save.type = 'button'
+        save.className = 'opt-btn opt-primary'
+        save.textContent = 'Save'
+        cancel.addEventListener('click', () => overlay.remove())
+        save.addEventListener('click', () => {
+            onSave(draft)
+            overlay.remove()
+        })
+        actions.append(cancel, save)
+        box.append(heading, form, actions)
+        overlay.appendChild(box)
+        document.body.appendChild(overlay)
+        let surface = getComputedStyle(box).backgroundColor
+        const settingsSurface = state.skillPanel?.querySelector('.skill-inline-settings')
+        const panelSurface = settingsSurface ? getComputedStyle(settingsSurface).backgroundColor : ''
+        if (!surface || surface === 'rgba(0, 0, 0, 0)' || surface === 'transparent')
+            surface = panelSurface
+        if (!surface || surface === 'rgba(0, 0, 0, 0)' || surface === 'transparent')
+            surface = getComputedStyle(state.skillPanel?.querySelector('.skill-card') || document.body).backgroundColor
+        if (surface && surface !== 'rgba(0, 0, 0, 0)' && surface !== 'transparent')
+            box.style.setProperty('background-color', surface, 'important')
+        requestAnimationFrame(() => form.querySelector('input,select')?.focus())
+    }
+
+    function createArrayEditorNative(field, list, onChange) {
+        const wrap = document.createElement('div')
+        wrap.className = 'skill-array-editor'
+        const table = document.createElement('div')
+        table.className = 'skill-array-table'
+        wrap.appendChild(table)
+        const fields = field?.fields && typeof field.fields === 'object' ? field.fields : {}
+        const keys = Object.keys(fields)
+        const cols = keys.filter(key => fields[key]?.type !== 'array')
+        const nested = keys.filter(key => fields[key]?.type === 'array')
+        if (cols.length > 4) wrap.classList.add('array-many')
+        const template = `grid-template-columns: repeat(${Math.max(1, cols.length)}, minmax(76px, 1fr)) 52px`
+        const header = document.createElement('div')
+        header.className = 'skill-array-row skill-array-head'
+        header.style.gridTemplateColumns = template
+        for (const key of cols) {
+            const cell = document.createElement('span')
+            cell.textContent = fields[key]?.label || key
+            cell.title = fields[key]?.label || key
+            header.appendChild(cell)
+        }
+        const addCell = document.createElement('span')
+        addCell.className = 'skill-array-head-actions'
+        const add = document.createElement('button')
+        add.type = 'button'
+        add.className = 'skill-array-add-head'
+        add.textContent = '+'
+        add.title = 'Add'
+        add.addEventListener('click', () => {
+            openArrayRowDialog(field, null, 'Add', row => {
+                list.push(row)
+                renderRows()
+                onChange()
+            })
+        })
+        addCell.appendChild(add)
+        header.appendChild(addCell)
+        table.appendChild(header)
+        const renderRows = () => {
+            table.querySelectorAll('.skill-array-data').forEach(node => node.remove())
+            if (!list.length) {
+                const empty = document.createElement('div')
+                empty.className = 'skill-array-empty skill-array-data'
+                empty.textContent = 'No entries'
+                table.appendChild(empty)
+                return
+            }
+            list.forEach((row, index) => {
+                if (!row || typeof row !== 'object') row = list[index] = {}
+                const rowEl = document.createElement('div')
+                rowEl.className = 'skill-array-row skill-array-data'
+                rowEl.style.gridTemplateColumns = template
+                for (const key of cols) {
+                    const cell = document.createElement('span')
+                    cell.className = 'skill-array-cell'
+                    cell.dataset.label = fields[key]?.label || key
+                    const sub = fields[key] || {}
+                    const value = row[key]
+                    if (sub.type === 'boolean') {
+                        cell.textContent = value ? '✓' : ''
+                        cell.title = value ? 'Enabled' : 'Disabled'
+                        cell.className += value ? ' bool-on' : ' bool-off'
+                    } else {
+                        cell.textContent = value ?? ''
+                        cell.title = String(value ?? '')
+                    }
+                    rowEl.appendChild(cell)
+                }
+                const actions = document.createElement('span')
+                actions.className = 'skill-array-actions'
+                const edit = document.createElement('button')
+                edit.type = 'button'
+                edit.className = 'skill-array-action'
+                edit.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>'
+                edit.title = 'Modify'
+                edit.addEventListener('click', () => {
+                    openArrayRowDialog(field, row, 'Modify', updated => {
+                        list[index] = updated
+                        renderRows()
+                        onChange()
+                    })
+                })
+                const remove = document.createElement('button')
+                remove.type = 'button'
+                remove.className = 'skill-array-action danger'
+                remove.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13"><path fill="currentColor" d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>'
+                remove.title = 'Delete'
+                remove.addEventListener('click', () => {
+                    list.splice(index, 1)
+                    renderRows()
+                    onChange()
+                })
+                actions.append(edit, remove)
+                rowEl.appendChild(actions)
+                for (const key of nested) {
+                    const sub = fields[key] || {}
+                    const details = document.createElement('details')
+                    details.className = 'skill-array-nested'
+                    const summary = document.createElement('summary')
+                    const childList = Array.isArray(row[key]) ? row[key] : (row[key] = Array.isArray(sub.defaultValue) ? structuredClone(sub.defaultValue) : [])
+                    summary.textContent = (sub.label || key) + ` (${childList.length})`
+                    details.appendChild(summary)
+                    details.appendChild(createArrayEditorNative(sub, childList, onChange))
+                    rowEl.appendChild(details)
+                }
+                table.appendChild(rowEl)
+            })
+        }
+        renderRows()
+        return wrap
+    }
+
     function renderConfigForm(id, row, fields, values, panel) {
         const body = panel?.body
         if (!body) return
         body.innerHTML = ''
-        const tabKey = Object.keys(fields).find(k => k === 'config_tab'
-            || (fields[k]?.type === 'select' && /configuration category/i.test(fields[k]?.label || '')))
+        const tabKey = Object.keys(fields).find(k => /^config_?tab$/i.test(k)
+            || (fields[k]?.type === 'select' && (/configuration category/i.test(fields[k]?.label || '')
+                || /select a category to view/i.test(fields[k]?.helperText || ''))))
         const tabField = tabKey ? fields[tabKey] : null
         const tabs = configOptions(tabField || {})
         let activeTab = values.config_tab ?? tabField?.defaultValue ?? tabs[0]?.value ?? ''
@@ -5253,21 +5858,13 @@
         if (tabs.length) {
             const block = document.createElement('div')
             block.className = 'skill-settings-tab-block'
-            const label = document.createElement('div')
-            label.className = 'skill-settings-tab-label'
-            label.textContent = tabField?.label || 'Configuration Category'
-            block.appendChild(label)
-            if (tabField?.helperText) {
-                const help = document.createElement('div')
-                help.className = 'skill-field-help'
-                help.textContent = tabField.helperText
-                block.appendChild(help)
-            }
             const bar = document.createElement('div')
             bar.className = 'skill-settings-tabs'
             for (const tab of tabs) {
                 const b = document.createElement('button')
                 b.type = 'button'
+                b.setAttribute('role', 'tab')
+                b.setAttribute('aria-selected', String(activeTab) === tab.value ? 'true' : 'false')
                 b.className = 'skill-settings-tab' + (String(activeTab) === tab.value ? ' active' : '')
                 b.textContent = tab.label
                 b.addEventListener('click', ev => {
@@ -5281,13 +5878,34 @@
             body.appendChild(block)
         }
         const keys = Object.keys(fields).filter(k => k !== tabKey)
-        let shown = 0
+        const blocks = []
         for (const key of keys) {
             const f = fields[key] || {}
-            if (!configFieldVisible(f, values)) continue
-            shown++
             const block = document.createElement('div')
             block.className = 'skill-field-block'
+            block.dataset.fieldKey = key
+            blocks.push(block)
+            if (f.type === 'array') {
+                const title = document.createElement('div')
+                title.className = 'skill-array-title'
+                title.textContent = f.label || key
+                block.appendChild(title)
+                if (f.helperText) {
+                    const help = document.createElement('div')
+                    help.className = 'skill-field-help'
+                    help.textContent = f.helperText
+                    block.appendChild(help)
+                }
+                const list = Array.isArray(values[key])
+                    ? values[key]
+                    : (values[key] = Array.isArray(f.defaultValue) ? structuredClone(f.defaultValue) : [])
+                block.appendChild(createArrayEditorNative(f, list, () => {
+                    values[key] = list
+                    body.dispatchEvent(new Event('input', { bubbles: true }))
+                }))
+                body.appendChild(block)
+                continue
+            }
             const label = document.createElement('label')
             label.className = 'skill-field'
             const span = document.createElement('span')
@@ -5295,15 +5913,20 @@
             label.appendChild(span)
             let input
             if (f.type === 'boolean') {
+                const toggle = document.createElement('span')
+                toggle.className = 'skill-switch'
                 input = document.createElement('input')
                 input.type = 'checkbox'
                 input.checked = values[key] ?? !!f.defaultValue
+                toggle.append(input)
+                label.appendChild(toggle)
             } else if (f.type === 'number') {
                 input = document.createElement('input')
                 input.type = 'number'
                 if (f.min != null) input.min = f.min
                 if (f.max != null) input.max = f.max
                 input.value = values[key] ?? f.defaultValue ?? ''
+                label.appendChild(input)
             } else if (f.type === 'select' && f.options) {
                 input = document.createElement('select')
                 for (const opt of configOptions(f)) {
@@ -5313,13 +5936,21 @@
                     input.appendChild(o)
                 }
                 input.value = String(values[key] ?? f.defaultValue ?? '')
+                label.appendChild(input)
+            } else if (f.multiline || f.inputProps?.rows) {
+                input = document.createElement('textarea')
+                input.rows = Number(f.inputProps?.rows) || 3
+                input.value = values[key] ?? f.defaultValue ?? ''
+                label.appendChild(input)
             } else {
                 input = document.createElement('input')
                 input.type = f.type === 'password' ? 'password' : 'text'
+                if (f.type === 'vfs_path' || f.type === 'real_path')
+                    input.placeholder = 'Server path'
                 input.value = values[key] ?? f.defaultValue ?? ''
+                label.appendChild(input)
             }
             input.dataset.key = key
-            label.appendChild(input)
             block.appendChild(label)
             if (f.helperText) {
                 const help = document.createElement('div')
@@ -5329,15 +5960,38 @@
             }
             body.appendChild(block)
         }
-        if (!shown && !tabs.length) {
-            const empty = document.createElement('div')
-            empty.className = 'skill-settings-empty'
-            empty.textContent = 'No quick settings'
-            body.appendChild(empty)
+        const empty = document.createElement('div')
+        empty.className = 'skill-settings-empty'
+        empty.textContent = 'No quick settings'
+        body.appendChild(empty)
+        const valuesFromInputs = () => {
+            for (const input of body.querySelectorAll('[data-key]')) {
+                values[input.dataset.key] = input.type === 'checkbox'
+                    ? input.checked
+                    : input.tagName === 'SELECT' ? input.value
+                    : input.type === 'number' ? (input.value === '' ? undefined : Number(input.value))
+                    : input.value
+            }
+            return values
         }
+        const updateVisibility = () => {
+            valuesFromInputs()
+            const visibleBlocks = []
+            for (const block of blocks) {
+                const key = block.dataset.fieldKey
+                const show = configFieldVisible(fields[key], values)
+                block.hidden = !show
+                if (show) visibleBlocks.push(block)
+            }
+            for (const block of visibleBlocks) {
+                block.classList.toggle('field-sep', block !== visibleBlocks[visibleBlocks.length - 1])
+            }
+            empty.hidden = !!(visibleBlocks.length || tabs.length)
+        }
+        updateVisibility()
         const saveBtn = panel?.save
         if (!saveBtn) return
-        if (!row || (!shown && !tabs.length)) {
+        if (!row || (!blocks.some(block => !block.hidden) && !tabs.length)) {
             saveBtn.hidden = true
             saveBtn.disabled = true
             saveBtn.classList.remove('dirty')
@@ -5346,6 +6000,9 @@
         const readConfig = () => {
             const config = {}
             if (tabKey) config.config_tab = values.config_tab
+            for (const [key, field] of Object.entries(fields)) {
+                if (field?.type === 'array') config[key] = Array.isArray(values[key]) ? values[key] : []
+            }
             for (const input of body.querySelectorAll('[data-key]')) {
                 const key = input.dataset.key
                 config[key] = input.type === 'checkbox' ? input.checked
@@ -5363,8 +6020,12 @@
         saveBtn.hidden = false
         saveBtn.disabled = true
         saveBtn.classList.remove('dirty')
-        body.oninput = markDirty
-        body.onchange = markDirty
+        const onFieldChange = () => {
+            updateVisibility()
+            markDirty()
+        }
+        body.oninput = onFieldChange
+        body.onchange = onFieldChange
         saveBtn.onclick = async ev => {
             ev.stopPropagation()
             try {
@@ -5636,13 +6297,15 @@
             .skill-actions .opt-btn { min-height: 26px; padding: 3px 7px; font-size: .76rem; }
             .skill-viewport { position: relative; flex: 1 1 0; width: 100%; max-width: 100%; min-width: 0; min-height: 160px; overflow: hidden; box-sizing: border-box; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.3)); border-radius: 6px; background-color: var(--active-bg, #101010) !important; cursor: grab; touch-action: none; }
             .skill-viewport.panning { cursor: grabbing; }
-            .skill-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+            .skill-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+            .skill-panel, .skill-inline-panel, .skill-settings-pop { -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; }
             .skill-links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
             .skill-links path { fill: none; stroke: var(--active-comment-contrast, rgba(190,190,190,.5)); stroke-width: 1.25; stroke-linejoin: miter; stroke-linecap: square; shape-rendering: geometricPrecision; }
             @media (hover: none), (pointer: coarse) { .skill-panel [data-skill-desc] { display: none !important; } }
             .skill-node { position: absolute; z-index: 2; user-select: none; touch-action: none; }
             .skill-node.dragging { z-index: 60; pointer-events: none; }
-            .skill-node.settings-open { z-index: 80; }
+            .skill-node.settings-focus { z-index: 70; }
+            .skill-node.settings-open { z-index: 90; }
             .skill-branch-card { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 42px; padding: 6px 10px; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.45)); border-radius: 4px; background-color: var(--active-button-bg, #1b1b1b) !important; color: var(--active-text, #e6e6e6) !important; overflow: hidden; }
             .skill-root .skill-branch-card { align-items: center; border-color: var(--active-text-high-contrast, #f0c27b) !important; border-width: 2px; color: var(--active-text-high-contrast, #f0c27b) !important; font-size: .95rem; }
             .skill-main .skill-branch-card { border-color: var(--active-text, rgba(255,153,0,.45)); height: 56px; min-height: 56px; max-height: 56px; padding-top: 6px; padding-bottom: 6px; padding-right: 52px; overflow: hidden; }
@@ -5657,7 +6320,7 @@
             .skill-main .skill-branch-card,
             .skill-category .skill-branch-card { border-width: 2px; border-color: var(--active-text-high-contrast, #f0c27b) !important; }
             .skill-branch-card strong { font-size: 1.02rem; font-weight: 600; cursor: pointer; }
-            .skill-node.has-color > .skill-branch-card { border-color: var(--branch-color) !important; }
+            .skill-node.has-color > .skill-branch-card { border-color: var(--branch-color) !important; background-image: linear-gradient(315deg, color-mix(in srgb, var(--branch-color) 18%, transparent), transparent 66%) !important; background-repeat: no-repeat !important; }
             .skill-root .skill-branch-card strong { font-size: 1.1rem; }
             .skill-branch-card small { font-size: .78rem; opacity: .7; }
             .skill-glow { display: none !important; }
@@ -5738,6 +6401,15 @@
             #optimizer-panel input[type="checkbox"]:checked::after { content: ''; width: 8px; height: 4px; border-left: 2px solid #111; border-bottom: 2px solid #111; transform: rotate(-45deg) translate(0, -1px); }
             .skill-field input[type="checkbox"]:focus-visible,
             #optimizer-panel input[type="checkbox"]:focus-visible { outline: 2px solid #ff9800; outline-offset: 2px; }
+            .skill-switch { position: relative; display: inline-flex; flex: 0 0 auto; width: 40px; height: 20px; vertical-align: middle; }
+            .skill-switch input[type="checkbox"] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; appearance: none; -webkit-appearance: none; background: transparent !important; border: 0 !important; cursor: pointer; z-index: 1; }
+            .skill-switch input[type="checkbox"]::after { content: none !important; }
+            .skill-switch::before { content: ''; position: absolute; left: 6px; top: 4px; width: 28px; height: 12px; border-radius: 6px; background-color: rgba(0,0,0,.38); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); transition: background-color .15s ease, box-shadow .15s ease; }
+            .skill-switch::after { content: ''; position: absolute; left: 5px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: rgba(165,165,165,.9); box-shadow: rgba(0,0,0,.2) 0 2px 1px -1px, rgba(0,0,0,.14) 0 1px 1px 0, rgba(0,0,0,.12) 0 1px 3px 0; transition: left .15s ease, background-color .15s ease; }
+            .skill-switch:has(input[type="checkbox"]:checked)::before { background-color: rgba(255,153,0,.9); box-shadow: none; }
+            .skill-switch:has(input[type="checkbox"]:checked)::after { left: 20px !important; background: #ff9900; }
+            .skill-field textarea { width: 148px; min-height: 52px; padding: 3px 5px; font: inherit; font-size: .75rem; color: var(--active-text, #f0f0f0) !important; background-color: var(--active-button-bg, #2a2a2a) !important; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.5)); border-radius: 3px; box-sizing: border-box; resize: vertical; }
+            .skill-field-block[hidden], .skill-settings-empty[hidden] { display: none !important; }
             .skill-settings-save { margin-top: 6px; width: 100%; }
             .skill-settings-start { display: block; margin-top: 8px; }
             .skill-settings-loading, .skill-settings-empty { font-size: .76rem; color: #bbb !important; padding: 4px; }
@@ -5746,6 +6418,17 @@
             .skill-settings-online p { margin: 0; line-height: 1.38; color: var(--active-text, #eee) !important; opacity: .9; }
             .skill-settings-online small { opacity: .65; word-break: break-all; font-size: .7rem; }
             .skill-settings-repo { margin: 0 0 5px; font-size: .7rem; color: var(--active-comment-contrast, #aaa) !important; opacity: .75; word-break: break-all; }
+            .skill-settings-meta { margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid rgba(127,127,127,.18); }
+            .skill-settings-description { margin: 0 0 5px; font-size: .72rem; line-height: 1.35; color: var(--active-text, #ddd) !important; opacity: .86; }
+            .skill-node.output-open { z-index: 100; }
+            .skill-output-pop { position: absolute; left: 0; top: calc(100% + 4px); z-index: 110; transition: top .15s ease; display: flex; flex-direction: column; width: 100%; max-height: 280px; overflow: hidden; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.6)); border-radius: 4px; background-color: var(--active-bg, #1e1e1e) !important; color: var(--active-text, #eee) !important; box-shadow: 0 0 0 4px var(--active-bg, #1e1e1e), 0 14px 20px -8px rgba(0,0,0,.72) !important; isolation: isolate; }
+            .skill-panel .skill-output-pop .skill-output-head { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid rgba(127,127,127,.22); background-color: var(--active-bg, #1e1e1e) !important; }
+            .skill-output-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .7rem; font-weight: 600; }
+            .skill-output-count { font-weight: 400; opacity: .6; }
+            .skill-output-refresh, .skill-output-close { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 3px; background: transparent !important; color: var(--active-comment-contrast, #bbb) !important; cursor: pointer; line-height: 1; }
+            .skill-output-refresh:hover, .skill-output-close:hover { background: rgba(127,127,127,.16) !important; color: var(--active-text, #fff) !important; }
+            .skill-output-log { flex: 1 1 auto; margin: 0; padding: 5px 6px; min-height: 48px; max-height: 230px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: .66rem/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--active-text, #ddd) !important; background: var(--active-button-bg, #181818) !important; box-shadow: inset 0 1px 0 rgba(127,127,127,.12); }
+            .skill-icon.output { color: var(--active-text, #ff9800) !important; }
             .skill-plugin.download-active .skill-card { outline: 2px solid rgba(33,150,243,.55); outline-offset: 1px; box-shadow: 0 0 9px 2px rgba(33,150,243,.3) !important; animation: opt-download-outline-blue 2.2s ease-in-out infinite; }
             .skill-plugin.download-queued .skill-card { outline: 2px solid rgba(156,39,176,.55); outline-offset: 1px; box-shadow: 0 0 9px 2px rgba(156,39,176,.3) !important; animation: opt-download-outline-purple 2.2s ease-in-out infinite; }
             .skill-plugin.action-queued-start .skill-card { outline: 2px solid rgba(76,175,80,.55); outline-offset: 1px; box-shadow: 0 0 9px 2px rgba(76,175,80,.3) !important; animation: opt-action-outline-green 2.2s ease-in-out infinite; }
@@ -5767,12 +6450,63 @@
             .skill-download-progress.error { color: #ef5350 !important; }
             @keyframes opt-download-flash { from { opacity: .3; } to { opacity: 1; } }
             .skill-field-block { margin: 4px 0; }
+            .skill-array-title { margin-bottom: 3px; font-size: .74rem; font-weight: 600; color: var(--active-text, #ddd) !important; }
+            .skill-array-editor { width: 100%; min-width: 0; overflow-x: auto; padding-bottom: 2px; }
+            .skill-array-table { display: flex; flex-direction: column; gap: 3px; min-width: 100%; }
+            .skill-array-row { display: grid; gap: 3px; align-items: center; min-width: 100%; }
+            .skill-array-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .62rem; color: var(--active-comment-contrast, #999) !important; }
+            .skill-array-cell { display: flex; align-items: center; min-width: 0; min-height: 22px; padding: 1px 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .68rem; color: var(--active-text, #ddd) !important; }
+            .skill-array-cell.bool-on { color: var(--active-good-contrast, #4caf50) !important; justify-content: center; }
+            .skill-array-empty { padding: 6px 3px; font-size: .68rem; color: var(--active-comment-contrast, #888) !important; }
+            .skill-array-head-actions { display: flex; justify-content: center; }
+            .skill-array-add-head { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 3px; background: transparent !important; color: var(--active-text, #ff9800) !important; cursor: pointer; font-size: 1rem; line-height: 1; }
+            .skill-array-add-head:hover { background: rgba(127,127,127,.16) !important; }
+            .skill-array-actions { display: flex; align-items: center; justify-content: flex-end; gap: 1px; }
+            .skill-array-action { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 3px; background: transparent !important; color: var(--active-comment-contrast, #aaa) !important; cursor: pointer; line-height: 1; }
+            .skill-array-action:hover { background: rgba(127,127,127,.16) !important; color: var(--active-text, #fff) !important; }
+            .skill-array-action.danger:hover { color: #ef5350 !important; background: rgba(239,83,80,.12) !important; }
+            @media (min-width: 761px) {
+                .skill-array-editor.array-many .skill-array-table { min-width: 0; }
+                .skill-array-editor.array-many .skill-array-head { display: flex; justify-content: flex-end; padding: 2px 0; }
+                .skill-array-editor.array-many .skill-array-head > span:not(.skill-array-head-actions) { display: none; }
+                .skill-array-editor.array-many .skill-array-data { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 4px 8px; min-width: 0; padding: 5px; border: 1px solid rgba(127,127,127,.2); border-radius: 3px; }
+                .skill-array-editor.array-many .skill-array-cell { display: block; min-width: 0; padding: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+                .skill-array-editor.array-many .skill-array-cell::before { content: attr(data-label); display: block; overflow: hidden; text-overflow: ellipsis; color: var(--active-comment-contrast, #999); font-size: .6rem; }
+                .skill-array-editor.array-many .skill-array-cell.bool-on { justify-content: start; }
+                .skill-array-editor.array-many .skill-array-actions { grid-column: 1 / -1; justify-content: flex-end; margin-top: 2px; }
+                .skill-array-editor.array-many .skill-array-nested { grid-column: 1 / -1; }
+                .skill-array-dialog .skill-array-editor.array-many .skill-array-data { grid-template-columns: 1fr; }
+            }
+            .skill-array-dialog-box { width: min(540px, 94vw) !important; max-height: 84vh; overflow: auto; background-color: var(--active-button-bg, #1b1b1b) !important; }
+            .skill-array-dialog-title { margin-bottom: 8px; font-size: .9rem; font-weight: 700; }
+            .skill-array-dialog-form { display: flex; flex-direction: column; gap: 6px; }
+            .skill-array-dialog-field { display: flex; align-items: center; gap: 8px; }
+            .skill-array-dialog-field > span:first-child { flex: 0 0 120px; font-size: .72rem; color: var(--active-text, #ddd) !important; }
+            .skill-array-dialog-field input[type="text"], .skill-array-dialog-field input[type="number"], .skill-array-dialog-field input[type="password"], .skill-array-dialog-field select { flex: 1 1 auto; min-width: 0; padding: 3px 5px; font: inherit; font-size: .74rem; color: var(--active-text, #eee) !important; background-color: var(--active-button-bg, #2a2a2a) !important; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.5)); border-radius: 3px; box-sizing: border-box; }
+            .skill-array-dialog-nested { margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(127,127,127,.18); }
+            .skill-array-dialog-label { margin-bottom: 3px; font-size: .72rem; font-weight: 600; }
+            @media (pointer: coarse), (max-width: 760px) {
+                .skill-array-table { min-width: 0; }
+                .skill-array-head { display: flex !important; justify-content: flex-end; min-width: 0; padding: 2px 0; }
+                .skill-array-head > span:not(.skill-array-head-actions) { display: none; }
+                .skill-array-data { display: flex !important; flex-direction: column; align-items: stretch; gap: 2px; min-width: 0; padding: 5px 6px; border: 1px solid rgba(127,127,127,.2); border-radius: 3px; }
+                .skill-array-cell { display: grid; grid-template-columns: 108px minmax(0, 1fr); gap: 6px; align-items: center; min-height: 0; padding: 1px 0; white-space: normal; }
+                .skill-array-cell::before { content: attr(data-label); overflow: hidden; text-overflow: ellipsis; color: var(--active-comment-contrast, #999); font-size: .64rem; }
+                .skill-array-cell.bool-on { justify-content: start; }
+                .skill-array-actions { justify-content: flex-end; margin-top: 2px; }
+                .skill-array-nested { width: 100%; margin-top: 3px; }
+                .skill-array-dialog-box { width: calc(100vw - 20px) !important; max-height: calc(100vh - 24px); padding: 10px 12px !important; }
+                .skill-array-dialog-field > span:first-child { flex-basis: 96px; }
+            }
+            .skill-array-nested { grid-column: 1 / -1; margin: 2px 0; padding-left: 6px; border-left: 1px solid rgba(127,127,127,.2); }
+            .skill-array-nested > summary { cursor: pointer; font-size: .68rem; color: var(--active-comment-contrast, #aaa); }
+            .skill-field-block.field-sep { padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid rgba(127,127,127,.16); }
             .skill-field-help { margin: 2px 0 0; font-size: .68rem; line-height: 1.32; color: var(--active-comment-contrast, #aaa) !important; opacity: .9; }
-            .skill-settings-tab-block { margin: 5px 0 7px; }
-            .skill-settings-tab-label { font-size: .76rem; font-weight: 600; margin-bottom: 2px; }
-            .skill-settings-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-            .skill-settings-tab { padding: 3px 7px; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.45)); border-radius: 3px; background: transparent; color: var(--active-text, #ddd) !important; font: inherit; font-size: .72rem; cursor: pointer; }
-            .skill-settings-tab.active { border-color: var(--active-focus-color, #ff9800) !important; color: var(--active-text-high-contrast, #f0c27b) !important; background-color: var(--active-mild-contrast, rgba(255,153,0,.12)) !important; }
+            .skill-settings-tab-block { margin: 4px 0 6px; min-width: 0; }
+            .skill-settings-tabs { display: flex; align-items: flex-end; gap: 3px 2px; flex: 1; min-width: 0; flex-wrap: wrap; overflow: visible; padding: 0 2px; border-bottom: 1px solid rgba(127,127,127,.4); }
+            .skill-panel .skill-settings-tabs .skill-settings-tab { display: inline-flex; align-items: center; flex: 0 0 auto; min-height: 22px; padding: 2px 10px; border: 1px solid rgba(127,127,127,.38) !important; border-bottom: 0 !important; border-radius: .4em .4em 0 0 !important; background: transparent !important; box-shadow: none !important; appearance: none; color: var(--active-comment-contrast, #aaa) !important; font: inherit; font-size: .72rem; font-weight: normal; white-space: nowrap; cursor: pointer; }
+            .skill-panel .skill-settings-tabs .skill-settings-tab:hover { color: var(--active-text, #eee) !important; border-color: rgba(255,255,255,.55) !important; border-bottom-color: transparent !important; background: transparent !important; }
+            .skill-panel .skill-settings-tabs .skill-settings-tab.active { color: var(--active-text, #eee) !important; font-weight: bold; border-color: var(--active-text, #eee) !important; border-bottom: 0 !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; background: transparent !important; }
             .skill-tray { flex: 0 0 auto; width: 100%; max-width: 100%; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 0 2px 1px; border-top: 1px solid rgba(127,127,127,.25); margin-top: 0; overflow: hidden; box-sizing: border-box; }
             .skill-tray[hidden] { display: none !important; }
             .skill-tray.empty { min-height: 36px; padding: 5px 8px; background-color: rgba(127,127,127,.035); }
@@ -5796,6 +6530,7 @@
             .skill-settings-pop { position: absolute; z-index: 1200; max-height: 60vh; overflow: auto; padding: 0 10px 8px; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.6)); border-radius: 5px; background-color: var(--active-bg, #1e1e1e) !important; color: var(--active-text, #eee) !important; box-shadow: 0 10px 24px rgba(0,0,0,.6); box-sizing: border-box; touch-action: pan-y; }
             .skill-settings-pop[hidden] { display: none !important; }
             .skill-inline-panel { position: absolute; left: 0; width: 100%; z-index: 40; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.6)); border-radius: 4px; background-color: var(--active-bg, #1e1e1e) !important; color: var(--active-text, #eee) !important; box-shadow: 0 6px 16px rgba(0,0,0,.5); }
+            .skill-node .skill-inline-panel { box-shadow: 0 14px 20px -8px rgba(0,0,0,.72) !important; }
             .skill-inline-panel[hidden] { display: none !important; }
             .skill-inline-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-start; gap: 6px; padding: 5px 6px; border-bottom: 1px solid var(--active-grid-contrast, rgba(127,127,127,.3)); background-color: var(--active-bg, #1e1e1e) !important; }
             .skill-inline-head strong { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
@@ -5806,7 +6541,7 @@
             .skill-inline-head .skill-inline-save:disabled { cursor: default; }
             .skill-inline-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 5px 7px; font-size: .76rem; line-height: 1.38; touch-action: pan-y; }
             .skill-inline-resizer { position: relative; flex: 0 0 10px; cursor: ns-resize; touch-action: none; background: linear-gradient(to bottom, transparent, var(--active-mild-contrast, rgba(127,127,127,.18))); border-top: 1px solid var(--active-grid-contrast, rgba(127,127,127,.3)); }
-            .skill-inline-resizer::after { content: ''; position: absolute; right: 5px; bottom: 2px; width: 18px; height: 7px; border-right: 2px solid var(--active-text, #ff9800); border-bottom: 2px solid var(--active-text, #ff9800); opacity: .8; pointer-events: none; }
+            .skill-inline-resizer::after { content: ''; position: absolute; right: 5px; bottom: 2px; width: 18px; height: 7px; border-right: 2px solid var(--panel-accent, var(--active-text, #ff9800)); border-bottom: 2px solid var(--panel-accent, var(--active-text, #ff9800)); opacity: .8; pointer-events: none; }
             .skill-settings-pop.inline { position: absolute !important; left: 0 !important; top: 56px !important; width: 100% !important; max-width: 100%; height: auto; max-height: 320px; z-index: 40; padding: 0 8px 8px; border-radius: 4px; box-shadow: 0 6px 16px rgba(0,0,0,.45); }
             .skill-settings-pop-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 0 5px; background-color: var(--active-bg, #1e1e1e) !important; border-bottom: 1px solid var(--active-grid-contrast, rgba(127,127,127,.3)); }
             .skill-settings-pop-head strong { font-size: .86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -5835,7 +6570,7 @@
             .skill-panel .skill-root .skill-branch-card strong { color: var(--active-text-high-contrast, #f0c27b) !important; }
             .skill-panel .skill-branch-card strong { color: var(--active-text-high-contrast, #f0c27b) !important; }
             .skill-panel .skill-settings { background-color: var(--active-bg, #1e1e1e) !important; }
-            .skill-panel .skill-settings-pop, .skill-panel .skill-confirm-box, .skill-panel .skill-inline-panel { background-color: var(--active-bg, #1e1e1e) !important; color: var(--active-text, #eee) !important; }
+            .skill-panel .skill-settings-pop, .skill-panel .skill-confirm-box, .skill-panel .skill-inline-panel, .skill-panel .skill-output-pop { background-color: var(--active-bg, #1e1e1e) !important; color: var(--active-text, #eee) !important; }
             .skill-panel .skill-confirm { background-color: transparent !important; }
             .skill-panel .skill-field > span { color: var(--active-text, #ddd) !important; }
             .skill-panel .skill-field input[type="text"], .skill-panel .skill-field input[type="number"], .skill-panel .skill-field input[type="password"], .skill-panel .skill-field select { background-color: var(--active-button-bg, #2a2a2a) !important; color: var(--active-text, #f0f0f0) !important; }
@@ -5864,7 +6599,7 @@
                 .skill-main.has-visibility .skill-branch-card,
                 .skill-category.has-visibility .skill-branch-card { padding-right: 104px; }
                 .skill-root .skill-branch-card { padding-right: 78px; }
-                .skill-zoom { display: flex; }
+                .skill-zoom { display: none !important; }
                 .skill-name { display: block; font-size: .86rem; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: unset; -webkit-box-orient: initial; }
                 .skill-ver { display: none; }
                 .skill-trunk-stat { font-size: .82rem; }
@@ -5873,9 +6608,81 @@
                 .skill-tray-head { font-size: .74rem; }
                 .skill-tray-item { padding: 2px 6px; font-size: .76rem; }
                 .skill-menu button { padding: 10px; font-size: .95rem; }
-                .skill-zoom { right: 16px; bottom: 78px; }
-                .skill-zoom button { width: 40px; height: 40px; font-size: 1.1rem; }
+
             }
+            body.opt-tree-light {
+                --opt-page: #f5f5f5;
+                --opt-card: #ffffff;
+                --opt-soft: #ededed;
+                --opt-ink: #1f1f1f;
+                --opt-muted: #666666;
+                --opt-line: rgba(0, 0, 0, .18);
+                --opt-hover: rgba(0, 0, 0, .06);
+            }
+            body.opt-tree-light .skill-panel,
+            body.opt-tree-light .skill-viewport { background-color: var(--opt-page) !important; color: var(--opt-ink) !important; }
+            body.opt-tree-light .skill-card,
+            body.opt-tree-light .skill-branch-card { background-color: var(--opt-card) !important; color: var(--opt-ink) !important; border-color: var(--opt-line) !important; box-shadow: 0 1px 2px rgba(0,0,0,.08) !important; }
+            body.opt-tree-light .skill-name,
+            body.opt-tree-light .skill-branch-card strong,
+            body.opt-tree-light .skill-title,
+            body.opt-tree-light .skill-settings-title { color: var(--opt-ink) !important; }
+            body.opt-tree-light .skill-ver,
+            body.opt-tree-light .skill-branch-card small,
+            body.opt-tree-light .skill-field-help,
+            body.opt-tree-light .skill-settings-empty { color: var(--opt-muted) !important; }
+            body.opt-tree-light .skill-icon,
+            body.opt-tree-light .skill-drag-handle,
+            body.opt-tree-light .skill-branch-menu { color: #555 !important; }
+            body.opt-tree-light .skill-icon:hover,
+            body.opt-tree-light .skill-drag-handle:hover { background: var(--opt-hover) !important; color: #000 !important; }
+            body.opt-tree-light .opt-btn,
+            body.opt-tree-light .skill-head button,
+            body.opt-tree-light .skill-array-add-head { background: var(--opt-soft) !important; color: var(--opt-ink) !important; border-color: var(--opt-line) !important; }
+            body.opt-tree-light .skill-tray,
+            body.opt-tree-light .skill-tray-item { background: var(--opt-card) !important; color: var(--opt-ink) !important; border-color: var(--opt-line) !important; }
+            body.opt-tree-light .skill-inline-panel,
+            body.opt-tree-light .skill-output-pop,
+            body.opt-tree-light .skill-settings-pop,
+            body.opt-tree-light .skill-confirm-box,
+            body.opt-tree-light .skill-array-dialog-box { background: var(--opt-card) !important; color: var(--opt-ink) !important; border-color: var(--opt-line) !important; }
+            body.opt-tree-light .skill-inline-head,
+            body.opt-tree-light .skill-output-head,
+            body.opt-tree-light .skill-settings-pop-head { background: var(--opt-card) !important; color: var(--opt-ink) !important; border-color: var(--opt-line) !important; }
+            body.opt-tree-light .skill-output-log { background: #f7f7f7 !important; color: #222 !important; }
+            body.opt-tree-light .skill-settings-tab { background: var(--opt-soft) !important; color: #333 !important; border-color: var(--opt-line) !important; }
+            body.opt-tree-light .skill-settings-tab.active { background: var(--opt-card) !important; color: #000 !important; border-color: #e67e00 !important; }
+            body.opt-tree-light .skill-panel .skill-field input[type="text"],
+            body.opt-tree-light .skill-panel .skill-field input[type="number"],
+            body.opt-tree-light .skill-panel .skill-field input[type="password"],
+            body.opt-tree-light .skill-panel .skill-field select,
+            body.opt-tree-light .skill-panel .skill-field textarea,
+            body.opt-tree-light .skill-array-dialog .skill-array-dialog-field input[type="text"],
+            body.opt-tree-light .skill-array-dialog .skill-array-dialog-field input[type="number"],
+            body.opt-tree-light .skill-array-dialog .skill-array-dialog-field input[type="password"],
+            body.opt-tree-light .skill-array-dialog .skill-array-dialog-field select,
+            body.opt-tree-light .opt-confirm-input { background-color: #fff !important; color: #111 !important; border-color: #bbb !important; box-shadow: none !important; }
+            body.opt-tree-light .skill-array-head span,
+            body.opt-tree-light .skill-array-cell::before { color: #666 !important; }
+            body.opt-tree-light .skill-array-cell { color: #222 !important; }
+            body.opt-tree-light .skill-array-data,
+            body.opt-tree-light .skill-array-nested { border-color: rgba(0,0,0,.14) !important; }
+            body.opt-tree-light .skill-array-action { color: #555 !important; }
+            body.opt-tree-light .skill-array-action:hover { background: var(--opt-hover) !important; color: #000 !important; }
+            body.opt-tree-light .skill-field-block.field-sep { border-bottom-color: rgba(0,0,0,.12) !important; }
+            body.opt-tree-light .skill-settings-meta { border-bottom-color: rgba(0,0,0,.12) !important; }
+            body.opt-tree-light .skill-switch::before { background: rgba(0,0,0,.22) !important; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12) !important; }
+            body.opt-tree-light .skill-switch::after { background: #fff !important; border-color: #bbb !important; }
+            body.opt-tree-light .skill-switch:has(input:checked)::before { background: #ff9900 !important; }
+            body.opt-tree-light .skill-switch:has(input:checked)::after { background: #ff9900 !important; }
+            body.opt-tree-light .skill-inline-resizer { background: linear-gradient(to bottom, transparent, rgba(0,0,0,.08)) !important; border-top-color: rgba(0,0,0,.15) !important; }
+            body.opt-tree-light .opt-confirm-text,
+            body.opt-tree-light .skill-array-dialog-title,
+            body.opt-tree-light .skill-output-title { color: #222 !important; }
+            body.opt-tree-light .opt-toast { background: #fff !important; color: #222 !important; border-color: var(--opt-line) !important; }
+            body.opt-tree-light .skill-menu { background: #fff !important; color: #222 !important; border-color: var(--opt-line) !important; }
+            body.opt-tree-light .skill-menu button { color: #222 !important; }
+            body.opt-tree-light .skill-menu button:hover { background: var(--opt-hover) !important; }
             @media (max-width: 900px) { .opt-grid { grid-template-columns: 1fr; } .opt-fields-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         `
         document.head.appendChild(style)
@@ -5938,6 +6745,72 @@
         updateSidebarActive()
     }
 
+    function uiColorLuminance(color) {
+        const match = String(color || '').match(/rgba?\(([^)]+)\)/i)
+        if (!match) return null
+        const parts = match[1].split(',').map(Number)
+        if (parts.length < 3 || parts.some((n, i) => i < 3 && !Number.isFinite(n))) return null
+        if ((parts[3] ?? 1) < 0.2) return null
+        return (0.2126 * parts[0] + 0.7152 * parts[1] + 0.0722 * parts[2]) / 255
+    }
+
+    function applyLightControlStyles() {
+        const light = document.body.classList.contains('opt-tree-light')
+        const controls = document.querySelectorAll([
+            '.skill-panel .skill-field input[type="text"]',
+            '.skill-panel .skill-field input[type="number"]',
+            '.skill-panel .skill-field input[type="password"]',
+            '.skill-panel .skill-field select',
+            '.skill-panel .skill-field textarea',
+            '.skill-array-dialog .skill-array-dialog-field input',
+            '.skill-array-dialog .skill-array-dialog-field select',
+            '.opt-confirm-input',
+        ].join(','))
+        for (const control of controls) {
+            if (light) {
+                control.dataset.optLightStyle = '1'
+                control.style.setProperty('background-color', '#ffffff', 'important')
+                control.style.setProperty('color', '#111111', 'important')
+                control.style.setProperty('border-color', '#bbbbbb', 'important')
+                control.style.setProperty('box-shadow', 'none', 'important')
+            } else if (control.dataset.optLightStyle) {
+                delete control.dataset.optLightStyle
+                control.style.removeProperty('background-color')
+                control.style.removeProperty('color')
+                control.style.removeProperty('border-color')
+                control.style.removeProperty('box-shadow')
+            }
+        }
+    }
+
+    function updateTreeTheme() {
+        let light = null
+        const candidates = [
+            document.body,
+            document.querySelector('#root'),
+            document.querySelector('main'),
+            document.querySelector('.MuiPaper-root'),
+        ]
+        for (const el of candidates) {
+            if (!el) continue
+            const luminance = uiColorLuminance(getComputedStyle(el).backgroundColor)
+            if (luminance != null) {
+                light = luminance > 0.55
+                break
+            }
+        }
+        if (light == null) light = window.matchMedia?.('(prefers-color-scheme: light)').matches || false
+        document.body.classList.toggle('opt-tree-light', !!light)
+        if (state.outputEl) {
+            const surface = light ? '#ffffff' : getComputedStyle(state.outputEl).backgroundColor
+            const head = state.outputEl.querySelector('.skill-output-head')
+            const log = state.outputEl.querySelector('.skill-output-log')
+            if (head) head.style.setProperty('background-color', surface, 'important')
+            if (log) log.style.setProperty('background-color', surface, 'important')
+        }
+        applyLightControlStyles()
+    }
+
     function start() {
         ensureStyle()
         loadLocalHidden()
@@ -5964,6 +6837,12 @@
             else if (onInstalledList()) restoreNativeSort()
         }, 2500)
         setInterval(() => { if (state.skillActive) loadTreeUpdates() }, 600000)
+        updateTreeTheme()
+        try {
+            new MutationObserver(updateTreeTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] })
+            new MutationObserver(updateTreeTheme).observe(document.body, { attributes: true, attributeFilter: ['class', 'style'] })
+        } catch {}
+        setInterval(updateTreeTheme, 1500)
         setInterval(async () => {
             if (!state.skillActive) return
             await loadServerDownloads()
