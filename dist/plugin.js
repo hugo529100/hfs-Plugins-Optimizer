@@ -1,4 +1,4 @@
-// plugin.js — Plugins Optimizer
+// plugin.js - Plugins Optimizer
 // One plugin for:
 //   1) a GitHub-only outbound HTTP proxy (VPN tunnel) used by plugin installs/updates and HFS updates;
 //   2) a persistent on-disk cache for GitHub API / raw plugin files;
@@ -8,12 +8,15 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 22.6
+exports.version = 22.9
 exports.apiRequired = 12.7
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "Hug3O/Plugins-Optimizer"
 exports.preview = []
 exports.changelog = [
+    { version: 22.9, message: "Default the independent VPN proxy and GitHub cache modules to off on fresh installs." },
+    { version: 22.8, message: "Remove the Network & cache master and Admin panel switches; keep admin UI always active, split proxy/cache settings, and document HFS outbound_proxy precedence." },
+    { version: 22.7, message: "Honor HFS' global outbound_proxy setting for GitHub requests, taking precedence over the plugin's own proxy configuration." },
     { version: 22.6, message: "Only inherit marker color from a main branch when it has its own color; root color applies only to plugins attached directly to the root." },
     { version: 22.5, message: "Place direct main plugins 2px below the branch and propagate branch/root colors to their left border marker." },
     { version: 22.4, message: "Enable a freshly downloaded plugin with set_plugin before starting it, so the PluginTree card lights up after install." },
@@ -212,21 +215,9 @@ exports.changelog = [
 exports.config = {
     // ========== Master switches ==========
     enabled: {
-        type: 'boolean', defaultValue: true, label: 'Enable',
-        helperText: "Master switch. When off, https.request is untouched and no admin UI is injected.",
+        type: 'boolean', defaultValue: true, label: 'Enable network modules',
+        helperText: "Master switch for proxy and cache request handling. Admin panel extensions are always enabled independently.",
         xs: 12
-    },
-    networkEnabled: {
-        type: 'boolean', defaultValue: false, label: 'Network & cache sync',
-        helperText: "Master switch for the VPN proxy, GitHub disk cache and plugin catalog sync. Off by default on a fresh install; the admin UI and hidden list keep working.",
-        xs: 12,
-        showIf: c => c.enabled === true
-    },
-    adminUi: {
-        type: 'boolean', defaultValue: true, label: 'Admin panel extensions',
-        helperText: "Inject the hide/show buttons and the Optimizer tab into HFS Admin. Turn off if another plugin conflicts.",
-        xs: 12,
-        showIf: c => c.enabled === true
     },
     debug: {
         type: 'boolean', defaultValue: false, label: 'Debug logging',
@@ -237,8 +228,8 @@ exports.config = {
 
     // ========== VPN / proxy ==========
     proxyEnabled: {
-        type: 'boolean', defaultValue: true, label: 'Route GitHub traffic through VPN proxy',
-        helperText: "Only plugin install/update and HFS system update traffic (GitHub hostnames below) is tunneled. All other traffic stays direct.",
+        type: 'boolean', defaultValue: false, label: 'Route GitHub traffic through VPN proxy',
+        helperText: "Independent proxy module. If HFS has a global outbound proxy (Options > Networking), HFS takes precedence over this proxy. Only GitHub hostnames below are tunneled by this plugin.",
         xs: 12,
         showIf: c => c.enabled === true
     },
@@ -265,7 +256,7 @@ exports.config = {
 
     // ========== Cache ==========
     cacheEnabled: {
-        type: 'boolean', defaultValue: true, label: 'Enable GitHub disk cache',
+        type: 'boolean', defaultValue: false, label: 'Enable GitHub disk cache',
         helperText: "Cache GET/HEAD responses from GitHub API and raw plugin files. Survives restarts and saves GitHub rate-limit quota.",
         xs: 12,
         showIf: c => c.enabled === true
@@ -296,7 +287,7 @@ exports.config = {
     },
     githubToken: {
         type: 'password', defaultValue: '', label: 'GitHub Token (optional)',
-        helperText: "PAT. When set, api.github.com requests get an Authorization header (60/h → 5000/h).",
+        helperText: "PAT. When set, api.github.com requests get an Authorization header (60/h -> 5000/h).",
         xs: 12,
         showIf: c => c.enabled === true && c.cacheEnabled === true
     },
@@ -413,7 +404,8 @@ exports.init = async api => {
     //  Config helpers
     // ============================================================
     function networkOn() {
-        return api.getConfig('networkEnabled') !== false
+        // Legacy helper: network/cache/proxy are now independent modules.
+        return true
     }
 
     function proxyConfig() {
@@ -443,6 +435,31 @@ exports.init = async api => {
         const auth = user ? `${user}:${pass}` : null
         const url = `${protocol}://${host}:${port}`
         return { protocol, host, port, auth, url }
+    }
+
+    function hfsOutboundProxy() {
+        let raw
+        try { raw = api.getHfsConfig('outbound_proxy') } catch { return null }
+        if (!raw) return null
+        if (typeof raw === 'object') raw = raw.url || raw.href || ''
+        raw = String(raw || '').trim()
+        if (!raw) return null
+        try {
+            const u = new URL(raw.includes('://') ? raw : 'http://' + raw)
+            const host = u.hostname
+            const port = Number(u.port) || (u.protocol === 'https:' ? 443 : 80)
+            if (!host) return null
+            const auth = u.username
+                ? `${decodeURIComponent(u.username)}:${decodeURIComponent(u.password || '')}`
+                : null
+            return { protocol: 'http', host, port, auth, url: `http://${host}:${port}`, hfs: true }
+        } catch { return null }
+    }
+
+    // HFS' global "outbound proxy" setting applies to all outgoing requests,
+    // so it takes precedence over this plugin's GitHub-only proxy setting.
+    function effectiveProxy() {
+        return hfsOutboundProxy() || proxyConfig()
     }
 
     const githubHostsList = () =>
@@ -1206,7 +1223,7 @@ exports.init = async api => {
         async function handle() {
             if (aborted) return
             const parsed = new URL(url)
-            const proxy = proxyConfig()
+            const proxy = effectiveProxy()
             const useProxy = !!proxy && isGithubHost(parsed.hostname)
             const cacheable = networkOn() && api.getConfig('cacheEnabled')
                 && isCacheableMethod(method)
@@ -1313,7 +1330,7 @@ exports.init = async api => {
 
             let u
             try { u = new URL(url) } catch { return original.apply(this, args) }
-            const proxy = proxyConfig()
+            const proxy = effectiveProxy()
             const proxied = !!proxy && isGithubHost(u.hostname)
             const cacheable = networkOn() && api.getConfig('cacheEnabled')
                 && isCacheableMethod((options.method || 'GET').toUpperCase())
@@ -1360,7 +1377,7 @@ exports.init = async api => {
 
     async function fetchText(url, { headers = {}, timeout = timeoutMs() } = {}) {
         const u = new URL(url)
-        const proxy = proxyConfig()
+        const proxy = effectiveProxy()
         const useProxy = !!proxy && isGithubHost(u.hostname)
         const res = useProxy
             ? await requestViaProxy(url, 'GET', { 'user-agent': 'HFS-Plugins-Optimizer', ...headers }, undefined, proxy, {})
@@ -1427,8 +1444,8 @@ exports.init = async api => {
     }
 
     async function syncCatalog(force = false) {
-        if (!api.getConfig('enabled') || !networkOn())
-            throw Error('Network & cache sync is disabled')
+        if (!api.getConfig('enabled'))
+            throw Error('Plugin is disabled')
         if (catalogState.syncing && catalogState.promise) return catalogState.promise
         if (!force && !catalogStale()) return catalogState.data
         catalogState.syncing = true
@@ -1509,8 +1526,8 @@ exports.init = async api => {
     //  Proxy self-test
     // ============================================================
     async function testProxy(host, port) {
-        if (!networkOn())
-            return { ok: false, error: 'Network & cache sync is disabled', at: Date.now() }
+        if (!api.getConfig('enabled'))
+            return { ok: false, error: 'Plugin is disabled', at: Date.now() }
         let h = String(host || api.getConfig('proxyHost') || DEFAULT_PROXY_HOST).trim()
         let p = Number(port || api.getConfig('proxyPort') || DEFAULT_PROXY_PORT)
         if (h.includes('://')) {
@@ -1603,7 +1620,7 @@ exports.init = async api => {
         const entries = Object.values(idx.entries || {})
         let totalBytes = 0
         for (const e of entries) totalBytes += e.bodyLength || 0
-        const proxy = proxyConfig()
+        const proxy = effectiveProxy()
         const hits = stats.hits
         const misses = stats.misses
         const total = hits + misses
@@ -1614,17 +1631,17 @@ exports.init = async api => {
             cacheDir: CACHE_ROOT,
             config: redactedConfig(),
             network: {
-                enabled: networkOn(),
+                enabled: !!api.getConfig('enabled'),
             },
             proxy: {
-                enabled: networkOn() && !!api.getConfig('proxyEnabled'),
+                enabled: !!api.getConfig('proxyEnabled'),
                 active: !!proxy,
                 host: proxy?.host || String(api.getConfig('proxyHost') || DEFAULT_PROXY_HOST),
                 port: proxy?.port || Number(api.getConfig('proxyPort') || DEFAULT_PROXY_PORT),
                 lastTest: lastProxyTest,
             },
             cache: {
-                enabled: networkOn() && !!api.getConfig('cacheEnabled'),
+                enabled: !!api.getConfig('cacheEnabled'),
                 entries: entries.length,
                 bytes: totalBytes,
                 hits,
@@ -1644,8 +1661,6 @@ exports.init = async api => {
 
     const CONFIG_COERCERS = {
         enabled: v => !!v,
-        networkEnabled: v => !!v,
-        adminUi: v => !!v,
         debug: v => !!v,
         proxyEnabled: v => !!v,
         cacheEnabled: v => !!v,
@@ -1787,7 +1802,8 @@ exports.init = async api => {
     //  Admin-panel HTML injection
     // ============================================================
     function middleware(ctx) {
-        if (!api.getConfig('enabled') || api.getConfig('adminUi') === false) return
+        // Admin panel extensions are intentionally independent from the
+        // network modules and have no on/off switch of their own.
         if (ctx.method !== 'GET') return
         if (ctx.path !== '/~/admin' && ctx.path !== '/~/admin/') return
         return () => {
@@ -1828,7 +1844,7 @@ exports.init = async api => {
 
     // Good to know immediately, but never block startup.
     setTimeout(() => {
-        const p = proxyConfig()
+        const p = effectiveProxy()
         if (p) testProxy(p.host, p.port).catch(() => {})
     }, 5000)
 
@@ -1843,7 +1859,7 @@ exports.init = async api => {
     }, 60 * 60 * 1000)
     if (catalogTimer.unref) catalogTimer.unref()
 
-    const p = proxyConfig()
+    const p = effectiveProxy()
     logInfo(`loaded v${exports.version}; proxy=${p ? `${p.host}:${p.port}` : 'off'}; cache=${api.getConfig('cacheEnabled') ? 'on' : 'off'}; catalog=${catalogInfo().count} entries`)
 
     return {
@@ -1874,3 +1890,4 @@ exports.init = async api => {
         },
     }
 }
+

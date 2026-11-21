@@ -594,11 +594,11 @@
                     <button type="button" class="opt-btn" data-opt-native title="Open the plugin's native Options dialog">Native options</button>
                 </div>
             </div>
-            <label class="opt-check opt-master">
-                <input type="checkbox" data-opt="networkEnabled">
-                <strong>Network &amp; cache sync</strong>
-                <span class="opt-muted">VPN proxy, GitHub cache and plugin catalog sync</span>
-            </label>
+            <div class="opt-hint">
+                <strong>Admin panel extensions</strong> are always enabled and are not controlled by any switch.
+                <br><strong>Proxy precedence:</strong> if HFS has a global Outbound proxy configured
+                (Options &gt; Networking), GitHub requests use it first; the proxy below is only the fallback.
+            </div>
             <div class="opt-grid">
                 <section class="opt-card">
                     <h3>VPN proxy</h3>
@@ -607,7 +607,7 @@
                         <label>Host <input type="text" data-opt="proxyHost" placeholder="192.168.1.224" autocomplete="off"></label>
                         <label>Port <input type="number" data-opt="proxyPort" min="1" max="65535" placeholder="10809"></label>
                     </div>
-                    <div class="opt-hint">Only GitHub hostnames used by plugin installs/updates and HFS updates are tunneled. All other traffic stays direct.</div>
+                    <div class="opt-hint">Independent proxy module. HFS' global Outbound proxy takes precedence; otherwise only GitHub hostnames used by plugin installs/updates and HFS updates are tunneled.</div>
                     <div class="opt-row">
                         <button type="button" class="opt-btn opt-primary" data-opt-test>Test connection</button>
                         <span class="opt-test-result" data-opt-test-result></span>
@@ -647,7 +647,6 @@
                         <label>Fail cooldown (s) <input type="number" min="10" max="3600" data-opt="failBlacklistSeconds"></label>
                     </div>
                     <label class="opt-check"><input type="checkbox" data-opt="debug"> Debug logging</label>
-                    <label class="opt-check"><input type="checkbox" data-opt="adminUi"> Admin panel extensions</label>
                     <label class="opt-wide">GitHub hosts routed through the proxy
                         <textarea data-opt="githubHosts" rows="3"></textarea>
                     </label>
@@ -704,9 +703,9 @@
     }
 
     function collectSettings() {
-        const names = ['networkEnabled', 'proxyEnabled', 'proxyHost', 'proxyPort', 'cacheEnabled', 'ttlHours', 'pluginTtlHours',
+        const names = ['proxyEnabled', 'proxyHost', 'proxyPort', 'cacheEnabled', 'ttlHours', 'pluginTtlHours',
             'maxAgeDays', 'catalogSyncHours', 'maxConcurrent', 'retryCount', 'requestTimeoutSec',
-            'failBlacklistThreshold', 'failBlacklistSeconds', 'debug', 'adminUi', 'githubHosts']
+            'failBlacklistThreshold', 'failBlacklistSeconds', 'debug', 'githubHosts']
         const out = {}
         for (const n of names) {
             const v = readField(n)
@@ -729,28 +728,25 @@
         }
         if (!state.dirty) {
             const c = st.config || {}
-            for (const n of ['networkEnabled', 'proxyEnabled', 'proxyHost', 'proxyPort', 'cacheEnabled', 'ttlHours', 'pluginTtlHours',
+            for (const n of ['proxyEnabled', 'proxyHost', 'proxyPort', 'cacheEnabled', 'ttlHours', 'pluginTtlHours',
                 'maxAgeDays', 'catalogSyncHours', 'maxConcurrent', 'retryCount', 'requestTimeoutSec',
-                'failBlacklistThreshold', 'failBlacklistSeconds', 'debug', 'adminUi', 'githubHosts']) {
+                'failBlacklistThreshold', 'failBlacklistSeconds', 'debug', 'githubHosts']) {
                 if (c[n] !== undefined) setField(n, c[n])
             }
         }
-        const networkEnabled = st.network?.enabled !== false
         const proxyStats = p.querySelector('[data-opt-proxy-stats]')
         if (proxyStats && st.proxy) {
             const lt = st.proxy.lastTest
-            const bits = !networkEnabled
-                ? ['Network & cache sync is off']
-                : [
-                    st.proxy.active ? `Using ${st.proxy.host}:${st.proxy.port}` : 'Proxy disabled',
-                    lt ? (lt.ok ? `Last test OK | HTTP ${lt.statusCode} | ${lt.latencyMs} ms` : `Last test failed | ${lt.error || 'unknown'}`) : 'No test yet',
-                ]
+            const bits = [
+                st.proxy.active ? `Using ${st.proxy.host}:${st.proxy.port}` : 'Proxy disabled',
+                lt ? (lt.ok ? `Last test OK | HTTP ${lt.statusCode} | ${lt.latencyMs} ms` : `Last test failed | ${lt.error || 'unknown'}`) : 'No test yet',
+            ]
             proxyStats.textContent = bits.join(' | ')
         }
         const testBtn = p.querySelector('[data-opt-test]')
-        if (testBtn) testBtn.disabled = !networkEnabled || state.busy
+        if (testBtn) testBtn.disabled = state.busy
         const syncBtn = p.querySelector('[data-opt-sync]')
-        if (syncBtn) syncBtn.disabled = !networkEnabled || state.busy
+        if (syncBtn) syncBtn.disabled = state.busy
         const cacheStats = p.querySelector('[data-opt-cache-stats]')
         if (cacheStats && st.cache) {
             const c = st.cache
