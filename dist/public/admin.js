@@ -400,37 +400,12 @@
     // ============================================================
     function ensureTab(list) {
         if (!list) return
-        const existing = $('[data-optimizer-tab]', list)
-        if (existing) {
-            state.tab = existing
-            return
-        }
-        const sample = $$('[role="tab"]', list).find(b => b.textContent.trim() === 'Check updates') || $$('[role="tab"]', list)[0]
-        if (!sample) return
-        const btn = document.createElement('button')
-        btn.type = 'button'
-        btn.className = sample.className + ' opt-tab'
-        btn.classList.remove('Mui-selected')
-        btn.setAttribute('role', 'tab')
-        btn.setAttribute('aria-selected', 'false')
-        btn.tabIndex = -1
-        btn.dataset.optimizerTab = '1'
-        btn.innerHTML = '<span>Optimizer</span>'
-        btn.title = 'Plugins Optimizer settings (same config as the native Options dialog)'
-        btn.addEventListener('click', ev => {
-            ev.preventDefault()
-            ev.stopPropagation()
-            activateTab()
-        })
-        list.appendChild(btn)
-        state.tab = btn
-        if (!list.dataset.optimizerBound) {
-            list.dataset.optimizerBound = '1'
-            list.addEventListener('click', ev => {
-                const t = ev.target.closest && ev.target.closest('[role="tab"]')
-                if (t && !t.dataset.optimizerTab && state.active) deactivateTab()
-            }, true)
-        }
+        // Skill Tree now lives in the sidebar, so the injected Optimizer tab
+        // and its panel are no longer part of the native tab bar.
+        $('[data-optimizer-tab]', list)?.remove()
+        document.getElementById('optimizer-panel')?.remove()
+        state.tab = null
+        state.panel = null
     }
 
     function ensureSidebarButton() {
@@ -634,7 +609,7 @@
     }
 
     function hideNativePane() {
-        if (!state.root || !state.tabsRoot || !state.panel) return
+        if (!state.root || !state.tabsRoot) return
         for (const child of [...state.root.children]) {
             if (child === state.tabsRoot || child === state.panel || child === state.skillPanel) continue
             if (!state.paneDisplays.has(child)) state.paneDisplays.set(child, child.style.display)
@@ -5423,7 +5398,6 @@
         state.root = tabsRoot.parentElement
         ensureTab(list)
         ensureSkillTab(list)
-        ensurePanel(list)
         ensureSkillPanel(list)
         if (state.sidebarPending && location.hash.includes('/plugins/installed')) {
             state.sidebarPending = false

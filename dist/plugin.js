@@ -8,12 +8,13 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 25.1
+exports.version = 25.2
 exports.apiRequired = 12.7
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "Hug3O/Plugins-Optimizer"
 exports.preview = []
 exports.changelog = [
+    { version: 25.2, message: "Remove the injected Optimizer tab now that Skill Tree is opened from the sidebar; clean up its old panel." },
     { version: 25.1, message: "Render the empty Unarranged label and hint at 50% opacity." },
     { version: 25, message: "Replace the hidden empty Unarranged tray with a dim drop-zone hint that accepts dragged plugins." },
     { version: 24.9, message: "Hide the Unarranged tray entirely when no plugins are unarranged." },
