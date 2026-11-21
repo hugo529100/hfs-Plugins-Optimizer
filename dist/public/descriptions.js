@@ -415,13 +415,13 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "updatedAt": 1795229488564
   },
   "rejetto/hfs-subtitles": {
-    "id": "rejetto/hfs-subtitles",
+    "id": "subtitles",
     "repo": "rejetto/hfs-subtitles",
     "author": "rejetto",
     "description": "load subtitles showing videos. The subtitles file is automatically loaded if it has the same name of the video file.",
     "version": 1.36,
-    "source": "catalog",
-    "updatedAt": 1795230784519
+    "source": "plugin",
+    "updatedAt": 1795230997675
   },
   "rejetto/mark-news": {
     "id": "rejetto/mark-news",
@@ -2096,5 +2096,14 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "version": 4.16,
     "source": "plugin",
     "updatedAt": 1795230987654
+  },
+  "subtitles": {
+    "id": "subtitles",
+    "repo": "rejetto/hfs-subtitles",
+    "author": "rejetto",
+    "description": "load subtitles showing videos. The subtitles file is automatically loaded if it has the same name of the video file.",
+    "version": 1.36,
+    "source": "plugin",
+    "updatedAt": 1795230997675
   }
 };
