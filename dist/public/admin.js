@@ -5702,7 +5702,14 @@
     function configOptions(field) {
         if (!field?.options) return []
         if (Array.isArray(field.options))
-            return field.options.map(o => ({ value: String(o.value), label: String(o.label ?? o.value) }))
+            return field.options.map(o => {
+                if (o && typeof o === 'object') {
+                    const value = String(o.value ?? '')
+                    return { value, label: String(o.label ?? o.value ?? value) }
+                }
+                const value = String(o ?? '')
+                return { value, label: value ? value.charAt(0).toUpperCase() + value.slice(1) : '' }
+            }).filter(o => o.value !== '')
         return Object.entries(field.options).map(([label, value]) => ({ value: String(value), label }))
     }
 

@@ -8,12 +8,13 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 38.0
+exports.version = 38.1
 exports.apiRequired = [12.7, 13.72]
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "Hug3O/Plugins-Optimizer"
 exports.preview = []
 exports.changelog = [
+    { version: 38.1, message: "Support string-array select options so Video-player's Error Notification Style shows Overlay/Toast instead of undefined." },
     { version: 38, message: "Keep the version-change strip on the left border and move the config-change strip to the right border." },
     { version: 37.9, message: "Make change-signal strip colors fully opaque while keeping the fade pulse animation." },
     { version: 37.8, message: "Compare versions from each plugin.js file on every tree load/refresh so direct source edits are detected too." },
