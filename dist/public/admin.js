@@ -1798,11 +1798,14 @@
         }
         if (!state.tree.positions || typeof state.tree.positions !== 'object')
             state.tree.positions = {}
-        const data = await apiCall('get_plugins', {}, { timeout: 30000 })
+        const [data, versionData] = await Promise.all([
+            apiCall('get_plugins', {}, { timeout: 30000 }),
+            rest('pluginsOptimizer_pluginVersions').catch(() => null),
+        ])
         const rows = (data?.list || []).map(parseRowConfig)
         state.pluginRows = rows
         state.installed = makeInstalledMap(rows)
-        recordPluginSignals(rows)
+        recordPluginSignals(rows, versionData?.versions || {})
         canonicalizeTreeIds()
         state.treeLoaded = true
         renderTree()
@@ -1814,6 +1817,7 @@
 
     async function refreshTreeInstalled(expected = null) {
         const lastKnown = expected ? state.installed.get(expected.id) : null
+        const versionData = await rest('pluginsOptimizer_pluginVersions').catch(() => null)
         for (let attempt = 0; attempt < 5; attempt++) {
             const data = await apiCall('get_plugins', {}, { timeout: 30000 })
             const rows = (data?.list || []).map(parseRowConfig)
@@ -1836,7 +1840,7 @@
                     : null,
             })
         }
-        recordPluginSignals(state.pluginRows)
+        recordPluginSignals(state.pluginRows, versionData?.versions || {})
         canonicalizeTreeIds()
         renderTree()
         const api = getGridApi()
@@ -4063,7 +4067,7 @@
         return (hash >>> 0).toString(36)
     }
 
-    function recordPluginSignals(rows) {
+    function recordPluginSignals(rows, fileVersions = {}) {
         const map = { ...readPluginSignals() }
         const now = Date.now()
         const seen = new Set()
@@ -4072,7 +4076,7 @@
             if (!id) continue
             seen.add(id)
             const previous = map[id] || {}
-            const version = String(row.version ?? '')
+            const version = String(fileVersions[id] ?? row.version ?? '')
             const configHash = pluginConfigHash(row)
             if (previous.version && version && previous.version !== version) previous.versionChangedAt = now
             if (previous.configHash && configHash && previous.configHash !== configHash) previous.configChangedAt = now
@@ -6610,11 +6614,10 @@
             }
             .skill-plugin.version-changed .skill-card,
             .skill-plugin.config-changed .skill-card { position: relative; isolation: isolate; }
-            .skill-plugin.version-changed .skill-card::after,
+            .skill-plugin.version-changed .skill-card::before,
             .skill-plugin.config-changed .skill-card::after {
                 content: '';
                 position: absolute;
-                left: 0;
                 top: 50%;
                 width: 2px;
                 height: calc(33.333% - 2px);
@@ -6624,14 +6627,13 @@
                 z-index: 1;
                 animation: opt-signal-glow 2.2s ease-in-out infinite;
             }
-            .skill-plugin.version-changed .skill-card::after {
-                background: rgba(255,170,0,.7);
+            .skill-plugin.version-changed .skill-card::before {
+                left: 0;
+                background: rgb(255,170,0);
             }
             .skill-plugin.config-changed .skill-card::after {
-                background: rgba(76,175,80,.7);
-            }
-            .skill-plugin.version-changed.config-changed .skill-card::after {
-                background: rgba(166,172,40,.7);
+                right: 0;
+                background: rgb(76,175,80);
             }
             @keyframes opt-signal-glow { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
             .skill-plugin.has-color .skill-card { border-color: var(--branch-color) !important; }

@@ -8,12 +8,15 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 37.7
+exports.version = 38.0
 exports.apiRequired = [12.7, 13.72]
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "Hug3O/Plugins-Optimizer"
 exports.preview = []
 exports.changelog = [
+    { version: 38, message: "Keep the version-change strip on the left border and move the config-change strip to the right border." },
+    { version: 37.9, message: "Make change-signal strip colors fully opaque while keeping the fade pulse animation." },
+    { version: 37.8, message: "Compare versions from each plugin.js file on every tree load/refresh so direct source edits are detected too." },
     { version: 37.7, message: "Dropping a plugin on a trunk now assigns it directly to the root and renders it below the trunk card." },
     { version: 37.6, message: "Remove the left-side hierarchy clamp so child branches can be placed left of their parents." },
     { version: 37.5, message: "Move a branch card together with its directly contained plugins; Shift also includes unlocked sub-branches." },
@@ -2245,6 +2248,25 @@ exports.init = async api => {
         } catch { return '' }
     }
 
+    async function customRestPluginVersions(params, ctx) {
+        assertAdmin(ctx)
+        const versions = {}
+        try {
+            const entries = await fs.readdir(PLUGINS_ROOT, { withFileTypes: true })
+            for (const entry of entries) {
+                if (!entry.isDirectory()) continue
+                const source = await fs.readFile(path.join(PLUGINS_ROOT, entry.name, 'plugin.js'), 'utf8').catch(() => '')
+                const match = source.match(/exports\.version\s*=\s*([^\r\n;]+)/)
+                if (!match) continue
+                let value = match[1].trim().replace(/^['"]|['"]$/g, '')
+                if (/^-?\d+(?:\.\d+)?$/.test(value)) value = Number(value)
+                else value = value.replace(/;+$/, '').trim()
+                if (value !== '') versions[entry.name] = value
+            }
+        } catch {}
+        return { ok: true, versions }
+    }
+
     async function customRestOnlinePlugin(params, ctx) {
         assertAdmin(ctx)
         const repo = String(params?.repo || '').trim()
@@ -2421,6 +2443,7 @@ exports.init = async api => {
             pluginsOptimizer_clearBlacklist: customRestClearBlacklist,
             pluginsOptimizer_syncCatalog: customRestSyncCatalog,
             pluginsOptimizer_catalog: customRestCatalog,
+            pluginsOptimizer_pluginVersions: customRestPluginVersions,
             pluginsOptimizer_descriptions: customRestDescriptions,
             pluginsOptimizer_saveDescriptions: customRestSaveDescriptions,
             pluginsOptimizer_onlinePlugin: customRestOnlinePlugin,
