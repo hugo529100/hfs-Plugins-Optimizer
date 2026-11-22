@@ -8,12 +8,52 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 33.7
+exports.version = 37.7
 exports.apiRequired = [12.7, 13.72]
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "Hug3O/Plugins-Optimizer"
 exports.preview = []
 exports.changelog = [
+    { version: 37.7, message: "Dropping a plugin on a trunk now assigns it directly to the root and renders it below the trunk card." },
+    { version: 37.6, message: "Remove the left-side hierarchy clamp so child branches can be placed left of their parents." },
+    { version: 37.5, message: "Move a branch card together with its directly contained plugins; Shift also includes unlocked sub-branches." },
+    { version: 37.4, message: "Allow moving only through the grip: default moves one card, Shift moves only unlocked descendants; card bodies no longer drag." },
+    { version: 37.3, message: "Invert drag behavior: card drag moves only the node, Shift+drag moves the whole branch." },
+    { version: 37.2, message: "Alt/Option-drag a branch card to move only that branch node, leaving all descendants in place." },
+    { version: 37.1, message: "Move the full recursive branch when dragging a branch card, while the grip handle moves only that node." },
+    { version: 37, message: "On locked branches, dragging a node pans the tree instead of doing nothing." },
+    { version: 36.9, message: "Deduplicate connector paths and composite them once at group opacity so overlaps no longer brighten into white lines." },
+    { version: 36.8, message: "Equalize the lock, visibility and menu button sizes on branch headers, including touch layouts." },
+    { version: 36.7, message: "Version bump." },
+    { version: 36.6, message: "Speed up the change-strip pulse from 3.2s to 2.2s." },
+    { version: 36.5, message: "Use a flat solid color for the change strip instead of a vertical gradient." },
+    { version: 36.4, message: "Pin the change strip to the inner left edge and raise its center opacity to 70%." },
+    { version: 36.3, message: "Move the change strip closer to the inner border and shorten it to one third of the card height." },
+    { version: 36.2, message: "Use a semi-transparent gradient strip immediately beside the category color bar as the change signal." },
+    { version: 36.1, message: "Turn the change signal into a soft color wash along the inner left edge instead of a cast shadow." },
+    { version: 36, message: "Shift the change glow just inside the left color strip and cast it to the right so the strip stays clear." },
+    { version: 35.9, message: "Paint the left signal glow behind the card surface and reduce its spread." },
+    { version: 35.8, message: "Replace change-signal inner shadows with a soft glowing outer bar on the card's left border." },
+    { version: 35.7, message: "Apply the compact one-row toolbar layout on coarse-pointer tablets including iPad portrait and landscape." },
+    { version: 35.6, message: "Fade change-signal glows from fully transparent and tighten inner corner radius to hug the card border." },
+    { version: 35.5, message: "Reduce the orange-yellow version-change glow opacity." },
+    { version: 35.4, message: "Tighten the signal-glow edge and shift the version-change glow to orange-yellow." },
+    { version: 35.3, message: "Increase change-signal inner-shadow opacity and spread so version and config changes are clearly distinguishable." },
+    { version: 35.2, message: "Remove the crisp inset outline from change signals, leaving only the soft blurred inner glow." },
+    { version: 35.1, message: "Track plugin version/config changes and show 3-day yellow or 1-day green inner-glow signals on cards." },
+    { version: 35, message: "Move + Trunk to the first position in the PluginTree toolbar." },
+    { version: 34.9, message: "Make the PLUGIN TREE tab enter the same tree-only page as the sidebar entry: tabs hidden and PluginTree sidebar selected." },
+    { version: 34.8, message: "Use the dark plugin-card surface mix for expanded hidden-row masks instead of the category accent color." },
+    { version: 34.7, message: "Make the PLUGIN TREE tab navigate to /~/admin/?pluginTree=1#/plugins/installed instead of only swapping the current tab content." },
+    { version: 34.6, message: "Render the PLUGIN TREE tab first with CSS order while keeping it last in the React tablist, preserving native tab indices." },
+    { version: 34.5, message: "Add a PLUGIN TREE tab to the left of INSTALLED for quick access, while keeping the tab bar visible." },
+    { version: 34.4, message: "Give expanded hidden plugin rows a same-width accent backdrop and temporarily raise their stacking layer." },
+    { version: 34.3, message: "Keep the bottom unarranged tray on a single compact line on desktop and mobile." },
+    { version: 34.2, message: "In short landscape viewports, place Reset/Restore/Save/Trunk/Refresh/Fullscreen on the title row with fluid compact text." },
+    { version: 34.1, message: "Persist the open Plugin output window across tree refreshes and full page reloads until it is closed manually." },
+    { version: 34, message: "Keep a 1px gap between the mobile drag handle and power button instead of overlapping their hit areas." },
+    { version: 33.9, message: "Tighten the drag/power spacing on mobile and show the plugin version in the card bar." },
+    { version: 33.8, message: "Remove the Exit label from the fullscreen button and add a Refresh button that reloads the tree without leaving fullscreen." },
     { version: 33.7, message: "Replace the Plugin Tree tab with the dedicated Optimizer settings tab that was recently removed." },
     { version: 33.6, message: "Restore a dedicated PLUGIN TREE tab in the Installed plugins tab bar, alongside the native tabs." },
     { version: 33.5, message: "Apply light-theme control colors inline so admin accent rules cannot make settings inputs orange." },

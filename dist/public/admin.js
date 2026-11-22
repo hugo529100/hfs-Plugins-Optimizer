@@ -396,8 +396,8 @@
     }
 
     function selectNativeTab(list) {
-        return $$('[role="tab"]', list).find(b => !b.dataset.optimizerTab && b.getAttribute('aria-selected') === 'true')
-            || $$('[role="tab"]', list).find(b => !b.dataset.optimizerTab)
+        return $$('[role="tab"]', list).find(b => !b.dataset.optimizerTab && !b.dataset.skillTab && b.getAttribute('aria-selected') === 'true')
+            || $$('[role="tab"]', list).find(b => !b.dataset.optimizerTab && !b.dataset.skillTab)
     }
 
     // ============================================================
@@ -462,7 +462,7 @@
         if (!btn) {
             const plugins = [...list.querySelectorAll('a')].find(a => (a.getAttribute('href') || '').includes('/plugins'))
             btn = document.createElement('a')
-            btn.href = '#/plugins/installed'
+            btn.href = pluginTreePageHref()
             btn.tabIndex = 0
             btn.dataset.optimizerPluginTree = '1'
             btn.setAttribute('aria-label', 'PluginTree')
@@ -484,7 +484,7 @@
                 if (!tabs) return
                 ensureSkillTab(tabs)
                 state.sidebarPending = false
-                activateSkillTab()
+                navigateToPluginTreePage()
             })
             if (plugins) plugins.insertAdjacentElement('beforebegin', btn)
             else list.appendChild(btn)
@@ -512,15 +512,64 @@
 
     function ensureSkillTab(list) {
         if (!list) return
-        $('[data-skill-tab]', list)?.remove()
-        state.skillTab = null
+        let tab = $('[data-skill-tab]', list)
+        if (!tab) {
+            const native = list.querySelector('[role="tab"]')
+            if (!native) return
+            tab = native.cloneNode(true)
+            tab.dataset.skillTab = '1'
+            tab.classList.add('opt-skill-tab')
+            tab.classList.remove('Mui-selected')
+            tab.removeAttribute('id')
+            tab.removeAttribute('aria-controls')
+            tab.setAttribute('aria-selected', 'false')
+            tab.setAttribute('aria-label', 'Plugin Tree')
+            tab.tabIndex = -1
+            tab.textContent = 'PLUGIN TREE'
+            tab.addEventListener('click', ev => {
+                ev.preventDefault()
+                ev.stopPropagation()
+                navigateToPluginTreePage()
+            })
+        }
+        tab.style.order = '-1'
+        if (tab.parentElement !== list) {
+            const indicator = $('.MuiTabs-indicator', list)
+            if (indicator) list.insertBefore(tab, indicator)
+            else list.appendChild(tab)
+        }
+        state.skillTab = tab
         if (!list.dataset.skillBound) {
             list.dataset.skillBound = '1'
             list.addEventListener('click', ev => {
                 const t = ev.target.closest && ev.target.closest('[role="tab"]')
-                if (t && state.skillActive) deactivateSkillTab()
+                if (t && t !== tab && state.skillActive) deactivateSkillTab()
             }, true)
         }
+    }
+
+    function pluginTreePageHref() {
+        return location.pathname + '?pluginTree=1#/plugins/installed'
+    }
+
+    function isPluginTreePage() {
+        try { return new URLSearchParams(location.search).has('pluginTree') } catch { return false }
+    }
+
+    function navigateToPluginTreePage() {
+        if (!isPluginTreePage()) {
+            try { history.pushState({ pluginTree: 1 }, '', pluginTreePageHref()) } catch { location.href = pluginTreePageHref(); return }
+        }
+        activateSkillTab()
+    }
+
+    function clearPluginTreePageRoute() {
+        if (!isPluginTreePage()) return
+        try {
+            const url = new URL(location.href)
+            url.searchParams.delete('pluginTree')
+            history.replaceState(history.state, '', url.pathname + url.search + url.hash)
+        } catch {}
     }
 
     function activateSkillTab() {
@@ -559,6 +608,7 @@
 
     function deactivateSkillTab() {
         state.skillActive = false
+        clearPluginTreePageRoute()
         updateSidebarActive()
         exitSkillFullscreen()
         if (state.skillTab) {
@@ -1520,11 +1570,12 @@
                     <div class="skill-sub" data-skill-sub>Loading...</div>
                 </div>
                 <div class="skill-actions">
+                    <button type="button" class="opt-btn" data-skill-add-trunk>+ Trunk</button>
                     <button type="button" class="opt-btn" data-skill-reset title="Reset custom positions to the HFS3 sequence layout">Reset</button>
                     <button type="button" class="opt-btn" data-skill-restore title="Restore the latest saved layout (Save default or before last Reset); right-click for other snapshots">Restore</button>
                     <button type="button" class="opt-btn" data-skill-freeze>Save default</button>
-                    <button type="button" class="opt-btn" data-skill-add-trunk>+ Trunk</button>
-                    <button type="button" class="opt-btn" data-skill-fullscreen title="Toggle fullscreen Skill Tree">Fullscreen</button>
+                    <button type="button" class="opt-btn opt-refresh-btn" data-skill-refresh title="Refresh PluginTree content" aria-label="Refresh PluginTree">Refresh</button>
+                    <button type="button" class="opt-btn" data-skill-fullscreen title="Enter fullscreen Skill Tree" aria-label="Fullscreen">Fullscreen</button>
                 </div>
             </div>
             <div class="skill-viewport" data-skill-viewport>
@@ -1578,6 +1629,7 @@
             if (b.dataset.skillRestore !== undefined) { restoreLatestTreeLayout(); return }
             if (b.dataset.skillFreeze !== undefined) { freezeTreeLayout(); return }
             if (b.dataset.skillAddTrunk !== undefined) { addTreeTrunk(); return }
+            if (b.dataset.skillRefresh !== undefined) { refreshSkillTree(); return }
             if (b.dataset.skillFullscreen !== undefined) { toggleSkillFullscreen(); return }
             if (b.dataset.skillZoomIn !== undefined) { zoomTreeBy(1.2); return }
             if (b.dataset.skillZoomOut !== undefined) { zoomTreeBy(1 / 1.2); return }
@@ -1591,7 +1643,13 @@
         })
         const viewport = panel.querySelector('[data-skill-viewport]')
         viewport.addEventListener('pointerdown', ev => {
-            if (ev.button !== 0 || ev.target.closest('.skill-node')) return
+            if (ev.button !== 0) return
+            if (ev.target.closest('button, a, input, select, textarea, .skill-inline-panel, .skill-output-pop, .skill-settings, .skill-menu')) return
+            const node = ev.target.closest('.skill-node')
+            if (node) {
+                const item = state.layout?.[node.dataset.key]
+                if (!item || !nodeIsLocked(item)) return
+            }
             startPan(ev)
         })
         viewport.addEventListener('wheel', ev => {
@@ -1744,6 +1802,7 @@
         const rows = (data?.list || []).map(parseRowConfig)
         state.pluginRows = rows
         state.installed = makeInstalledMap(rows)
+        recordPluginSignals(rows)
         canonicalizeTreeIds()
         state.treeLoaded = true
         renderTree()
@@ -1777,6 +1836,7 @@
                     : null,
             })
         }
+        recordPluginSignals(state.pluginRows)
         canonicalizeTreeIds()
         renderTree()
         const api = getGridApi()
@@ -2163,7 +2223,7 @@
                 // Default sequence: level 1 branches vertically, level 2
                 // categories horizontally, level 3 plugin entries vertically.
                 const mainY = mainPos.y ?? verticalY
-                const mainX = Math.max(mainPos.x ?? (rootX + 420), rootX + 420)
+                const mainX = mainPos.x ?? (rootX + 420)
                 layout[mainKey] = {
                     key: mainKey, type: 'main', id: main.id, root: root.id, label: main.label,
                     x: mainX, y: mainY, w: 340, h: 56,
@@ -2172,9 +2232,7 @@
                 const layoutCatTree = (cat, defaultX, defaultY, baseX, topLevel = false) => {
                     const key = 'cat:' + cat.id
                     const catPos = positions[key] || {}
-                    const catX = topLevel
-                        ? Math.max(catPos.x ?? defaultX, mainX + 420)
-                        : (catPos.x ?? defaultX)
+                    const catX = catPos.x ?? defaultX
                     const catY = catPos.y ?? defaultY
                     const sections = categorySections(cat)
                     layout[key] = { key, type: 'category', id: cat.id, main: main.id, root: root.id, label: cat.label, x: catX, y: catY, w: 340, h: 56 }
@@ -2230,7 +2288,7 @@
                 cats.forEach((cat, i) => {
                     const key = 'cat:' + cat.id
                     const catPos = positions[key] || {}
-                    const defaultX = Math.max(catPos.x ?? (mainX + 420 + i * 400), mainX + 420)
+                    const defaultX = catPos.x ?? (mainX + 420 + i * 400)
                     bottom = Math.max(bottom, layoutCatTree(cat, defaultX, mainY + 84, defaultX, true))
                 })
                 ;[].forEach((cat, i) => {
@@ -2338,7 +2396,7 @@
                 const sb = state.installed.get(b)?.started ? 0 : 1
                 return sa - sb
             })
-            let rootNext = rootMains.length ? bandBottom + 40 : rootY + 84
+            let rootNext = rootY + 84
             for (const id of rootPlugins) {
                 const pkey = 'plugin:' + id
                 layout[pkey] = {
@@ -2646,7 +2704,10 @@
         const svg = state.skillPanel?.querySelector('[data-skill-links]')
         if (!svg || !state.layout) return
         const paths = []
+        const seenPaths = new Set()
         const pushPath = d => {
+            if (seenPaths.has(d)) return
+            seenPaths.add(d)
             paths.push(`<path d="${d}"/>`)
         }
         const add = (a, b) => {
@@ -2779,6 +2840,7 @@
         dockInlinePanels()
         updateConnectors()
         applyWorldTransform()
+        ensurePersistedOutput()
         if (!state.treeFitted) {
             state.treeFitted = true
             requestAnimationFrame(focusTree)
@@ -3031,9 +3093,7 @@
                 : (branchItem.type === 'category' && categoryIsLocked(branchItem.id)))
         if (locked) return
         if (branchItem.type === 'root') {
-            const main = state.tree.mains.find(m => m.root === branchItem.id)
-            if (main) assignPluginToMain(pluginId, main.id)
-            else assignPluginToRoot(pluginId, branchItem.id)
+            assignPluginToRoot(pluginId, branchItem.id)
         } else {
             assignPluginToMain(pluginId, branchItem.id)
         }
@@ -3204,7 +3264,7 @@
             const lockBtn = `<button type="button" class="skill-lock ${locked ? 'locked' : 'unlocked'}" title="${locked ? 'Locked: click to unlock this trunk' : 'Unlocked: click to lock this trunk'}" aria-label="${locked ? 'Unlock' : 'Lock'} ${item.label}">${locked ? ICONS.lock : ICONS.unlock}</button>`
             el.classList.toggle('locked', locked)
             el.innerHTML = `<div class="skill-branch-card root"><span class="skill-glow"></span>${dragGlyph}<span class="skill-branch-tools">${lockBtn}${menuBtn}</span><strong>${item.label}</strong><span class="skill-trunk-stat" title="Loaded plugins in this trunk">${loaded} loaded</span></div>`
-            el.querySelector('.skill-drag-handle')?.addEventListener('pointerdown', ev => startNodeDrag(ev, item, el))
+            el.querySelector('.skill-drag-handle')?.addEventListener('pointerdown', ev => startNodeDrag(ev, item, el, !!ev.shiftKey))
             el.querySelector('.skill-lock')?.addEventListener('click', ev => {
                 ev.preventDefault()
                 ev.stopPropagation()
@@ -3226,7 +3286,7 @@
             const lockBtn = `<button type="button" class="skill-lock ${mainLocked ? 'locked' : 'unlocked'}" title="${mainLocked ? 'Locked: click to unlock this branch' : 'Unlocked: click to lock this branch'}" aria-label="${mainLocked ? 'Unlock' : 'Lock'} ${item.label}">${mainLocked ? ICONS.lock : ICONS.unlock}</button>`
             el.classList.toggle('locked', mainLocked)
             el.innerHTML = `<div class="skill-branch-card main"><span class="skill-glow"></span>${dragGlyph}<span class="skill-branch-tools">${lockBtn}${eyeBtn}${menuBtn}</span><strong>${item.label}</strong><small>${loaded} loaded${hidden ? ` | ${hidden} hidden` : ''}</small></div>`
-            el.querySelector('.skill-drag-handle')?.addEventListener('pointerdown', ev => startNodeDrag(ev, item, el))
+            el.querySelector('.skill-drag-handle')?.addEventListener('pointerdown', ev => startNodeDrag(ev, item, el, !!ev.shiftKey))
             el.querySelector('.skill-lock')?.addEventListener('click', ev => {
                 ev.preventDefault()
                 ev.stopPropagation()
@@ -3261,7 +3321,7 @@
             el.classList.toggle('locked', catLocked)
             el.innerHTML = `<div class="skill-branch-card category"><span class="skill-glow"></span>${dragGlyph}<span class="skill-branch-tools">${lockBtn}${eyeBtn}${menuBtn}</span><strong>${item.label}</strong><small>${countText}</small></div>`
             el.dataset.category = item.id
-            el.querySelector('.skill-drag-handle')?.addEventListener('pointerdown', ev => startNodeDrag(ev, item, el))
+            el.querySelector('.skill-drag-handle')?.addEventListener('pointerdown', ev => startNodeDrag(ev, item, el, !!ev.shiftKey))
             bindBranchColorTitle(el, item)
             el.querySelector('.skill-lock')?.addEventListener('click', ev => {
                 ev.preventDefault()
@@ -3290,10 +3350,6 @@
         el.querySelector('.skill-branch-menu')?.addEventListener('click', ev => {
             ev.stopPropagation()
             showBranchMenu(item, ev.currentTarget)
-        })
-        el.querySelector('.skill-branch-card')?.addEventListener('pointerdown', ev => {
-            if (ev.target.closest('button, .skill-drag-handle, strong')) return
-            startNodeDrag(ev, item, el)
         })
         return el
     }
@@ -3410,13 +3466,35 @@
         state.outputEl.style.top = (top + 6) + 'px'
     }
 
-    function closePluginOutput() {
+    const OUTPUT_OPEN_KEY = 'pluginsOptimizer.outputOpen.v1'
+
+    function readPersistedOutput() {
+        try { return localStorage.getItem(OUTPUT_OPEN_KEY) || '' } catch { return '' }
+    }
+
+    function persistOutput(id) {
+        try {
+            if (id) localStorage.setItem(OUTPUT_OPEN_KEY, id)
+            else localStorage.removeItem(OUTPUT_OPEN_KEY)
+        } catch {}
+    }
+
+    function closePluginOutput(clearPersisted = false) {
         if (state.outputTimer) clearInterval(state.outputTimer)
         state.outputTimer = null
         state.outputEl?.closest('.skill-node')?.classList.remove('output-open')
         state.outputEl?.remove()
         state.outputEl = null
         state.outputId = null
+        if (clearPersisted) persistOutput('')
+    }
+
+    function ensurePersistedOutput() {
+        const persisted = readPersistedOutput()
+        if (!persisted) return
+        if (state.outputId === persisted && state.outputEl?.isConnected) return
+        if (state.outputEl && state.outputId !== persisted) closePluginOutput(false)
+        togglePluginOutput(persisted)
     }
 
     async function refreshPluginOutput() {
@@ -3445,10 +3523,10 @@
 
     function togglePluginOutput(id) {
         if (state.outputId === id && state.outputEl?.isConnected) {
-            closePluginOutput()
+            closePluginOutput(true)
             return
         }
-        closePluginOutput()
+        closePluginOutput(false)
         const node = [...(state.skillPanel?.querySelectorAll('.skill-node') || [])]
             .find(el => el.dataset.id === id)
         if (!node) return
@@ -3473,7 +3551,7 @@
         close.className = 'skill-output-close'
         close.textContent = '×'
         close.title = 'Close output'
-        close.addEventListener('click', ev => { ev.stopPropagation(); closePluginOutput() })
+        close.addEventListener('click', ev => { ev.stopPropagation(); closePluginOutput(true) })
         head.append(title, refresh, close)
         const log = document.createElement('pre')
         log.className = 'skill-output-log'
@@ -3487,6 +3565,7 @@
         log.style.setProperty('background-color', surface, 'important')
         state.outputId = id
         state.outputEl = pop
+        persistOutput(id)
         updatePluginOutputPosition()
         applyInlinePanelAccent(id)
         refreshPluginOutput()
@@ -3959,6 +4038,72 @@
         if (state.settingsPanels.get(id) === panel) panel.body.appendChild(note)
     }
 
+    const SIGNAL_KEY = 'pluginsOptimizer.pluginSignals.v1'
+    const VERSION_SIGNAL_MS = 3 * 24 * 60 * 60 * 1000
+    const CONFIG_SIGNAL_MS = 24 * 60 * 60 * 1000
+    let pluginSignalCache = null
+
+    function readPluginSignals() {
+        if (pluginSignalCache) return pluginSignalCache
+        try { pluginSignalCache = JSON.parse(localStorage.getItem(SIGNAL_KEY) || '{}') || {} }
+        catch { pluginSignalCache = {} }
+        return pluginSignalCache
+    }
+
+    function writePluginSignals(map) {
+        pluginSignalCache = map
+        try { localStorage.setItem(SIGNAL_KEY, JSON.stringify(map)) } catch {}
+    }
+
+    function pluginConfigHash(row) {
+        let raw = ''
+        try { raw = typeof row?.config === 'string' ? row.config : JSON.stringify(row?.config || {}) } catch { raw = '' }
+        let hash = 5381
+        for (let i = 0; i < raw.length; i++) hash = ((hash << 5) + hash) ^ raw.charCodeAt(i)
+        return (hash >>> 0).toString(36)
+    }
+
+    function recordPluginSignals(rows) {
+        const map = { ...readPluginSignals() }
+        const now = Date.now()
+        const seen = new Set()
+        for (const row of rows || []) {
+            const id = String(row?.id || '').trim()
+            if (!id) continue
+            seen.add(id)
+            const previous = map[id] || {}
+            const version = String(row.version ?? '')
+            const configHash = pluginConfigHash(row)
+            if (previous.version && version && previous.version !== version) previous.versionChangedAt = now
+            if (previous.configHash && configHash && previous.configHash !== configHash) previous.configChangedAt = now
+            previous.version = version
+            previous.configHash = configHash
+            if (previous.versionChangedAt && now - previous.versionChangedAt > VERSION_SIGNAL_MS) delete previous.versionChangedAt
+            if (previous.configChangedAt && now - previous.configChangedAt > CONFIG_SIGNAL_MS) delete previous.configChangedAt
+            map[id] = previous
+        }
+        for (const id of Object.keys(map)) if (!seen.has(id)) delete map[id]
+        writePluginSignals(map)
+    }
+
+    function getPluginSignalState(id) {
+        const signal = readPluginSignals()[id] || {}
+        const now = Date.now()
+        return {
+            version: !!signal.versionChangedAt && now - signal.versionChangedAt <= VERSION_SIGNAL_MS,
+            config: !!signal.configChangedAt && now - signal.configChangedAt <= CONFIG_SIGNAL_MS,
+        }
+    }
+
+    function markPluginConfigChanged(id) {
+        if (!id) return
+        const map = { ...readPluginSignals() }
+        const entry = { ...(map[id] || {}) }
+        entry.configChangedAt = Date.now()
+        map[id] = entry
+        writePluginSignals(map)
+    }
+
     function makePluginNode(item) {
         const { row, repo, hug3o, description: storedDescription } = treeMeta(item.id)
         const installed = !!row
@@ -3967,6 +4112,14 @@
         const description = storedDescription || (hug3o ? 'Hug3O plugin (not installed)' : '')
         const el = document.createElement('div')
         el.className = 'skill-node skill-plugin' + (installed ? (running ? ' running' : ' stopped') : ' missing') + (hug3o ? ' hug3o' : '') + (row?.error ? ' plugin-error' : '')
+        const signal = getPluginSignalState(row?.id || item.id)
+        if (signal.version) el.classList.add('version-changed')
+        if (signal.config) el.classList.add('config-changed')
+        const cat = (state.tree?.categories || []).find(c => (c.plugins || []).some(pid => samePluginId(pid, item.id)))
+        const directMain = (state.tree?.mains || []).find(m => (m.plugins || []).some(pid => samePluginId(pid, item.id)))
+        if (!running && ((cat && state.treeShowUnloaded.has(cat.id))
+            || (directMain && state.treeShowUnloaded.has('main:' + directMain.id))))
+            el.classList.add('hidden-expanded')
         el.dataset.key = item.key
         el.dataset.id = item.id
         setNodeXY(el, item.x, item.y)
@@ -4060,13 +4213,11 @@
         actions.appendChild(gear)
         const grip = document.createElement('span')
         grip.className = 'skill-drag-handle'
-        grip.title = 'Drag'
+        grip.title = item.type === 'plugin'
+            ? 'Drag this plugin'
+            : 'Drag this node and its plugins (Shift-drag to move unlocked sub-branches too)'
         grip.textContent = GLYPH_DRAG
-        grip.addEventListener('pointerdown', ev => startNodeDrag(ev, item, el))
-        card.addEventListener('pointerdown', ev => {
-            if (ev.target.closest('button, .skill-drag-handle')) return
-            startNodeDrag(ev, item, el)
-        })
+        grip.addEventListener('pointerdown', ev => startNodeDrag(ev, item, el, !!ev.shiftKey))
         card.append(grip, power, name, ver)
         if (errorBadge) card.append(errorBadge)
         card.append(actions)
@@ -4074,7 +4225,7 @@
         return el
     }
 
-    function startNodeDrag(ev, item, el) {
+    function startNodeDrag(ev, item, el, wholeBranch = false) {
         // Ignore synthetic/programmatic pointer events (for example a MUI ripple
         // triggered by a scripted click) so they cannot move a whole branch.
         if (!ev.isTrusted) return
@@ -4087,33 +4238,45 @@
         ev.stopPropagation()
         const start = { x: ev.clientX, y: ev.clientY }
         const positions = state.tree.positions || (state.tree.positions = {})
-        const keys = []
-        if (item.type === 'plugin') keys.push(item.key)
-        else if (item.type === 'category') {
-            keys.push(item.key)
-            for (const id of state.tree.categories.find(c => c.id === item.id)?.plugins || []) keys.push('plugin:' + id)
-        } else if (item.type === 'main') {
-            keys.push(item.key)
-            const main = state.tree.mains.find(m => m.id === item.id)
-            for (const id of main?.plugins || []) keys.push('plugin:' + id)
-            for (const cat of state.tree.categories.filter(c => c.main === item.id)) {
-                keys.push('cat:' + cat.id)
-                for (const id of cat.plugins || []) keys.push('plugin:' + id)
+        const keys = new Set()
+        const seenCategories = new Set()
+        const addCategoryTree = cat => {
+            if (!cat || seenCategories.has(cat.id) || categoryIsLocked(cat.id)) return
+            seenCategories.add(cat.id)
+            keys.add('cat:' + cat.id)
+            for (const id of cat.plugins || []) keys.add('plugin:' + id)
+            for (const child of state.tree.categories.filter(c => c.parent === cat.id)) addCategoryTree(child)
+        }
+        keys.add(item.key)
+        if (item.type !== 'plugin' && !wholeBranch) {
+            if (item.type === 'category') {
+                const cat = state.tree.categories.find(c => c.id === item.id)
+                for (const id of cat?.plugins || []) keys.add('plugin:' + id)
+            } else if (item.type === 'main') {
+                const main = state.tree.mains.find(m => m.id === item.id)
+                for (const id of main?.plugins || []) keys.add('plugin:' + id)
+            } else if (item.type === 'root') {
+                const root = state.tree.roots.find(r => r.id === item.id)
+                for (const id of root?.plugins || []) keys.add('plugin:' + id)
             }
+        } else if (item.type === 'category') {
+            addCategoryTree(state.tree.categories.find(c => c.id === item.id))
+        } else if (item.type === 'main') {
+            const main = state.tree.mains.find(m => m.id === item.id)
+            for (const id of main?.plugins || []) keys.add('plugin:' + id)
+            for (const cat of state.tree.categories.filter(c => c.main === item.id && !c.parent)) addCategoryTree(cat)
         } else if (item.type === 'root') {
-            keys.push(item.key)
             const root = state.tree.roots.find(r => r.id === item.id)
-            for (const id of root?.plugins || []) keys.push('plugin:' + id)
+            for (const id of root?.plugins || []) keys.add('plugin:' + id)
             for (const main of state.tree.mains.filter(m => m.root === item.id)) {
-                keys.push('main:' + main.id)
-                for (const id of main.plugins || []) keys.push('plugin:' + id)
-                for (const cat of state.tree.categories.filter(c => c.main === main.id)) {
-                    keys.push('cat:' + cat.id)
-                    for (const id of cat.plugins || []) keys.push('plugin:' + id)
-                }
+                if (mainIsLocked(main.id)) continue
+                keys.add('main:' + main.id)
+                for (const id of main.plugins || []) keys.add('plugin:' + id)
+                for (const cat of state.tree.categories.filter(c => c.main === main.id && !c.parent))
+                    addCategoryTree(cat)
             }
         }
-        const origins = keys.map(key => {
+        const origins = [...keys].map(key => {
             const current = state.layout[key]
             return current ? { key, x: current.x, y: current.y } : null
         }).filter(Boolean)
@@ -5156,8 +5319,39 @@
         panel.classList.toggle('skill-fullscreen', on)
         document.body.classList.toggle('skill-fullscreen-active', on)
         const btn = panel.querySelector('[data-skill-fullscreen]')
-        if (btn) btn.textContent = on ? 'Exit fullscreen' : 'Fullscreen'
+        if (btn) {
+            btn.textContent = 'Fullscreen'
+            btn.title = on ? 'Exit fullscreen Skill Tree' : 'Enter fullscreen Skill Tree'
+            btn.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen')
+        }
         if (on) setTimeout(() => { fitTree(); applyWorldTransform() }, 50)
+    }
+
+    async function refreshSkillTree() {
+        const panel = state.skillPanel
+        if (!panel) return
+        const btn = panel.querySelector('[data-skill-refresh]')
+        const wasFullscreen = panel.classList.contains('skill-fullscreen')
+        if (btn) {
+            btn.disabled = true
+            btn.textContent = 'Refreshing...'
+        }
+        try {
+            await loadTree(true)
+            await loadTreeUpdates()
+            await loadServerDownloads()
+            applyPendingDownloadFeedback(true)
+            if (wasFullscreen && !panel.classList.contains('skill-fullscreen'))
+                setSkillFullscreen(true)
+            toast('PluginTree refreshed')
+        } catch (e) {
+            toast('Refresh failed: ' + (e.message || 'unknown error'), 'error', 9000)
+        } finally {
+            if (btn) {
+                btn.disabled = false
+                btn.textContent = 'Refresh'
+            }
+        }
     }
 
     async function exitSkillFullscreen() {
@@ -6055,6 +6249,7 @@
             ev.stopPropagation()
             try {
                 await apiCall('set_plugin', { id, config: readConfig() })
+                markPluginConfigChanged(id)
                 toast('Settings saved: ' + id)
                 saveBtn.classList.remove('dirty')
                 saveBtn.disabled = true
@@ -6119,7 +6314,7 @@
         }
         tray.innerHTML = ''
         if (!listed.length) {
-            tray.innerHTML = '<span class="skill-tray-empty">Drag plugins here to unarrange them.</span>'
+            tray.innerHTML = '<span class="skill-tray-empty" title="Drag plugins here to unarrange them.">Drag plugins here</span>'
             return
         }
         for (const id of listed) {
@@ -6189,6 +6384,7 @@
         style.id = 'optimizer-css'
         style.textContent = `
             .opt-tab { display: inline-flex !important; align-items: center; gap: 6px; }
+            .opt-refresh-btn { white-space: nowrap; }
             .opt-tab svg { width: 18px; height: 18px; }
             .opt-toolbar-btn { position: relative !important; width: 28px; height: 28px; padding: 4px; }
             .opt-toolbar-btn.opt-active { color: #ff9800; }
@@ -6299,7 +6495,7 @@
                 z-index: 2;
             }
             /* Skill Tree */
-            .opt-skill-tab { white-space: nowrap; }
+            .opt-skill-tab { order: -1; white-space: nowrap; }
             .opt-skill-tab.Mui-selected { color: var(--active-text, #ff9800) !important; font-weight: 600; }
             .skill-panel, .skill-panel *, .opt-toast {
                 box-shadow: none !important;
@@ -6325,8 +6521,9 @@
             .skill-viewport.panning { cursor: grabbing; }
             .skill-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
             .skill-panel, .skill-inline-panel, .skill-settings-pop { -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; }
-            .skill-links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
-            .skill-links path { fill: none; stroke: var(--active-comment-contrast, rgba(190,190,190,.5)); stroke-width: 1.25; stroke-linejoin: miter; stroke-linecap: square; shape-rendering: geometricPrecision; }
+            .skill-links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; opacity: .55; }
+            .skill-links path { fill: none; stroke: #9a9a9a; stroke-opacity: 1; stroke-width: 1.25; stroke-linejoin: miter; stroke-linecap: square; shape-rendering: geometricPrecision; }
+            body.opt-tree-light .skill-links path { stroke: #777777; }
             @media (hover: none), (pointer: coarse) { .skill-panel [data-skill-desc] { display: none !important; } }
             .skill-node { position: absolute; z-index: 2; user-select: none; touch-action: none; }
             .skill-node.dragging { z-index: 60; pointer-events: none; }
@@ -6360,6 +6557,8 @@
             .skill-lock { position: absolute; right: 26px; top: 2px; width: 22px; height: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 3px; background: transparent; cursor: pointer; }
             .skill-lock:hover { background-color: var(--active-mild-contrast, rgba(127,127,127,.16)) !important; }
             .skill-branch-tools { position: absolute; right: 2px; top: 1px; z-index: 5; display: flex; align-items: center; gap: 2px; }
+            .skill-branch-tools > button { width: 22px; height: 22px; min-width: 22px; min-height: 22px; padding: 0; box-sizing: border-box; }
+            .skill-branch-tools > button svg { width: 15px; height: 15px; }
             .skill-branch-tools .skill-lock,
             .skill-branch-tools .skill-branch-menu,
             .skill-branch-tools .skill-branch-visibility { position: static; right: auto; top: auto; left: auto; margin: 0; flex: 0 0 auto; }
@@ -6396,6 +6595,45 @@
             .skill-plugin.missing .skill-card { border-style: dashed; opacity: 1; filter: none; }
             .skill-plugin.stopped .skill-card > *,
             .skill-plugin.missing .skill-card > * { opacity: .7; filter: grayscale(1) brightness(.82); }
+            .skill-node.hidden-expanded { z-index: 60; }
+            .skill-node.hidden-expanded::before {
+                content: '';
+                position: absolute;
+                left: 0;
+                top: -3px;
+                width: 100%;
+                height: calc(100% + 6px);
+                border-radius: 4px;
+                background-color: color-mix(in srgb, var(--active-button-bg, #1b1b1b) 76%, #000) !important;
+                pointer-events: none;
+                z-index: -1;
+            }
+            .skill-plugin.version-changed .skill-card,
+            .skill-plugin.config-changed .skill-card { position: relative; isolation: isolate; }
+            .skill-plugin.version-changed .skill-card::after,
+            .skill-plugin.config-changed .skill-card::after {
+                content: '';
+                position: absolute;
+                left: 0;
+                top: 50%;
+                width: 2px;
+                height: calc(33.333% - 2px);
+                transform: translateY(-50%);
+                border-radius: 2px;
+                pointer-events: none;
+                z-index: 1;
+                animation: opt-signal-glow 2.2s ease-in-out infinite;
+            }
+            .skill-plugin.version-changed .skill-card::after {
+                background: rgba(255,170,0,.7);
+            }
+            .skill-plugin.config-changed .skill-card::after {
+                background: rgba(76,175,80,.7);
+            }
+            .skill-plugin.version-changed.config-changed .skill-card::after {
+                background: rgba(166,172,40,.7);
+            }
+            @keyframes opt-signal-glow { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
             .skill-plugin.has-color .skill-card { border-color: var(--branch-color) !important; }
             .skill-plugin.has-category-marker .skill-card { border-left-color: var(--category-marker-color) !important; }
             .skill-plugin.has-branch-marker .skill-card { border-left-color: var(--branch-marker-color) !important; }
@@ -6535,7 +6773,8 @@
             .skill-panel .skill-settings-tabs .skill-settings-tab.active { color: var(--active-text, #eee) !important; font-weight: bold; border-color: var(--active-text, #eee) !important; border-bottom: 0 !important; border-bottom-left-radius: 0 !important; border-bottom-right-radius: 0 !important; background: transparent !important; }
             .skill-tray { flex: 0 0 auto; width: 100%; max-width: 100%; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 0 2px 1px; border-top: 1px solid rgba(127,127,127,.25); margin-top: 0; overflow: hidden; box-sizing: border-box; }
             .skill-tray[hidden] { display: none !important; }
-            .skill-tray.empty { min-height: 36px; padding: 5px 8px; background-color: rgba(127,127,127,.035); }
+            .skill-tray.empty { min-height: 24px; padding: 1px 6px; background-color: rgba(127,127,127,.035); }
+            .skill-tray-empty { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .7rem; }
             .skill-tray.empty .skill-tray-items { align-items: center; }
             .skill-tray.empty .skill-tray-head { opacity: .5; }
             .skill-tray.drop-target { background-color: var(--active-mild-contrast, rgba(255,153,0,.12)) !important; }
@@ -6620,21 +6859,42 @@
                 .skill-branch-visibility svg { width: 20px; height: 20px; color: var(--active-comment-contrast, #aaa) !important; fill: currentColor !important; }
                 .skill-category .skill-branch-card, .skill-main .skill-branch-card, .skill-root .skill-branch-card { padding-left: 52px; padding-right: 78px; }
                 .skill-branch-tools { right: 2px; gap: 1px; }
-                .skill-branch-tools .skill-lock { width: 32px; height: 32px; }
+                .skill-branch-tools > button,
+                .skill-branch-tools .skill-lock,
+                .skill-branch-tools .skill-branch-menu,
+                .skill-branch-tools .skill-branch-visibility { width: 32px; height: 32px; min-width: 32px; min-height: 32px; font-size: 20px; }
+                .skill-branch-tools > button svg,
+                .skill-branch-tools .skill-branch-visibility svg { width: 18px; height: 18px; }
+                .skill-root .skill-branch-card,
+                .skill-main .skill-branch-card,
+                .skill-category .skill-branch-card { padding-right: 108px; }
                 .skill-main .skill-branch-card { padding-right: 78px; }
                 .skill-main.has-visibility .skill-branch-card,
                 .skill-category.has-visibility .skill-branch-card { padding-right: 104px; }
                 .skill-root .skill-branch-card { padding-right: 78px; }
                 .skill-zoom { display: none !important; }
-                .skill-name { display: block; font-size: .86rem; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: unset; -webkit-box-orient: initial; }
-                .skill-ver { display: none; }
+                .skill-card { gap: 2px; }
+                .skill-drag-handle { width: 20px; margin-right: -1px; }
+                .skill-icon.power { margin-left: 0; }
+                .skill-name { display: block; font-size: .82rem; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: unset; -webkit-box-orient: initial; }
+                .skill-ver { display: inline-block; flex: 0 0 auto; max-width: 38px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .64rem; opacity: .7; }
                 .skill-trunk-stat { font-size: .82rem; }
-                .skill-tray { flex-direction: column; align-items: stretch; gap: 1px; padding: 0 2px 1px; }
-                .skill-tray-items { flex: 0 0 auto; width: 100%; max-width: 100%; min-height: 22px; }
+                .skill-tray { flex-direction: row; align-items: center; gap: 3px; padding: 0 2px; min-height: 22px; }
+                .skill-tray-items { flex: 1 1 0; width: auto; max-width: 100%; min-height: 18px; }
                 .skill-tray-head { font-size: .74rem; }
                 .skill-tray-item { padding: 2px 6px; font-size: .76rem; }
                 .skill-menu button { padding: 10px; font-size: .95rem; }
 
+            }
+            @media (orientation: landscape) and (max-height: 600px), (pointer: coarse) and (min-width: 601px) {
+                .skill-head { flex-direction: row !important; flex-wrap: nowrap !important; align-items: center !important; gap: 4px !important; margin-bottom: 2px !important; }
+                .skill-titlebar { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap !important; gap: 5px !important; overflow: hidden; }
+                .skill-title { flex: 0 0 auto; font-size: clamp(.76rem, 1.7vw, .94rem) !important; white-space: nowrap; }
+                .skill-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(.56rem, 1.25vw, .7rem) !important; }
+                .skill-actions { flex: 0 1 auto; width: auto !important; min-width: 0; justify-content: flex-end !important; flex-wrap: nowrap !important; gap: 2px !important; margin-left: auto; }
+                .skill-actions .opt-btn { flex: 0 1 auto; min-width: 0; padding: 1px 4px !important; font-size: clamp(.54rem, 1.35vw, .66rem) !important; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .skill-actions .opt-btn svg { width: 12px; height: 12px; }
+                .skill-viewport { min-height: 0; }
             }
             body.opt-tree-light {
                 --opt-page: #f5f5f5;
@@ -6738,6 +6998,7 @@
         ensureTab(list)
         ensureSkillTab(list)
         ensureSkillPanel(list)
+        if (isPluginTreePage() && !state.skillActive) state.sidebarPending = true
         if (state.sidebarPending && location.hash.includes('/plugins/installed')) {
             state.sidebarPending = false
             setTimeout(() => {
@@ -6846,6 +7107,14 @@
         try {
             new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true })
         } catch {}
+        window.addEventListener('popstate', () => {
+            if (isPluginTreePage()) {
+                state.sidebarPending = true
+                schedule()
+            } else if (state.skillActive) {
+                deactivateSkillTab()
+            }
+        })
         window.addEventListener('hashchange', () => {
             updateRouteAttribute()
             state.gridApi = null
@@ -6883,4 +7152,5 @@
     if (document.body) start()
     else document.addEventListener('DOMContentLoaded', start, { once: true })
 })()
+
 
