@@ -667,6 +667,9 @@
         state.active = true
         renderStatus()
         refreshStatus().catch(() => {})
+        requestAnimationFrame(() => {
+            try { state.tabsRoot?.scrollIntoView({ block: 'start', inline: 'nearest' }) } catch {}
+        })
     }
 
     function deactivateTab() {
@@ -700,6 +703,9 @@
         if (!state.root || !state.tabsRoot) return
         for (const child of [...state.root.children]) {
             if (child === state.tabsRoot || child === state.panel || child === state.skillPanel) continue
+            // Keep the page header/title above the native tab strip; only hide
+            // the panes that follow the tabs.
+            if (state.tabsRoot.compareDocumentPosition(child) & Node.DOCUMENT_POSITION_PRECEDING) continue
             if (!state.paneDisplays.has(child)) state.paneDisplays.set(child, child.style.display)
             child.style.display = 'none'
         }
@@ -723,6 +729,7 @@
         state.tabsRoot = tabsRoot
         state.root = root
         if (state.panel && state.panel.isConnected && state.panel.parentElement === root) {
+            if (tabsRoot.nextSibling !== state.panel) root.insertBefore(state.panel, tabsRoot.nextSibling)
             if (!state.active) state.panel.style.display = 'none'
             return
         }
@@ -1487,11 +1494,12 @@
     }
 
     function pluginDisplayName(id) {
-        return String(id || '')
+        const name = String(id || '')
             .replace(/^(?:hugo529100|hugo29100)[-_]/i, '')
             .replace(/^hfs-/i, '')
             .replace(/-main$/i, '')
             .replace(/\+$/, '')
+        return name ? name.charAt(0).toUpperCase() + name.slice(1) : name
     }
 
     function pluginMatchKey(id) {
@@ -1807,6 +1815,7 @@
         state.installed = makeInstalledMap(rows)
         recordPluginSignals(rows, versionData?.versions || {})
         canonicalizeTreeIds()
+        pruneOrphanTreePlugins()
         state.treeLoaded = true
         renderTree()
         refreshHiddenVisibility()
@@ -1842,6 +1851,7 @@
         }
         recordPluginSignals(state.pluginRows, versionData?.versions || {})
         canonicalizeTreeIds()
+        pruneOrphanTreePlugins()
         renderTree()
         const api = getGridApi()
         if (api) {
@@ -4040,6 +4050,29 @@
             }
         }
         if (state.settingsPanels.get(id) === panel) panel.body.appendChild(note)
+    }
+
+    function pruneOrphanTreePlugins() {
+        if (!state.tree || !state.installed?.size) return 0
+        const removed = new Set()
+        const keep = id => !!state.installed.get(id) || treeIsStarred(id)
+        const filterList = list => (list || []).filter(id => {
+            if (keep(id)) return true
+            removed.add(id)
+            return false
+        })
+        for (const root of state.tree.roots || []) root.plugins = filterList(root.plugins)
+        for (const main of state.tree.mains || []) main.plugins = filterList(main.plugins)
+        for (const cat of state.tree.categories || []) cat.plugins = filterList(cat.plugins)
+        if (!removed.size) return 0
+        for (const id of removed) {
+            delete state.tree.positions?.['plugin:' + id]
+            delete state.tree.pluginMeta?.[id]
+            delete state.tree.pluginColors?.[id]
+        }
+        state.tree.updatedAt = Date.now()
+        saveTreeNow().catch(() => {})
+        return removed.size
     }
 
     const SIGNAL_KEY = 'pluginsOptimizer.pluginSignals.v1'
@@ -6506,8 +6539,8 @@
                 z-index: 2;
             }
             /* Skill Tree */
-            .opt-skill-tab { order: -1; white-space: nowrap; }
-            .opt-skill-tab.Mui-selected { color: var(--active-text, #ff9800) !important; font-weight: 600; }
+            .opt-skill-tab { order: -1; white-space: nowrap; margin: 4px 6px 4px 0 !important; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.55)) !important; border-radius: 4px !important; color: var(--active-text, #ff9800) !important; opacity: 1 !important; }
+            .opt-skill-tab.Mui-selected { color: var(--active-text, #ff9800) !important; font-weight: 600; border-color: var(--active-text, #ff9800) !important; }
             .skill-panel, .skill-panel *, .opt-toast {
                 box-shadow: none !important;
                 text-shadow: none !important;
@@ -7004,8 +7037,12 @@
         if (!tabsRoot) return
         state.tabsRoot = tabsRoot
         state.root = tabsRoot.parentElement
+        const pageHeader = tabsRoot.previousElementSibling
+        if (pageHeader?.querySelector('h2')?.textContent.trim() === 'Plugins')
+            pageHeader.style.display = 'none'
         ensureTab(list)
         ensureSkillTab(list)
+        syncSkillTabAccent()
         ensureSkillPanel(list)
         if (isPluginTreePage() && !state.skillActive) state.sidebarPending = true
         if (state.sidebarPending && location.hash.includes('/plugins/installed')) {
@@ -7079,6 +7116,21 @@
         }
     }
 
+    function syncSkillTabAccent() {
+        const tab = state.skillTab
+        if (!tab) return
+        const sidebarSelected = document.querySelector(
+            '.MuiListItemButton-root.Mui-selected .MuiListItemText-primary, .MuiListItem-root.Mui-selected .MuiListItemText-primary, .MuiMenuItem-root.Mui-selected .MuiListItemText-primary'
+        )
+        const nativeSelected = [...document.querySelectorAll('[role="tab"][aria-selected="true"]')]
+            .find(el => !el.dataset.skillTab && !el.dataset.optimizerTab)
+        let color = sidebarSelected ? getComputedStyle(sidebarSelected).color : ''
+        if (!color || color === 'rgba(0, 0, 0, 0)')
+            color = nativeSelected ? getComputedStyle(nativeSelected).color : ''
+        if (color && color !== 'rgba(0, 0, 0, 0)')
+            tab.style.setProperty('color', color, 'important')
+    }
+
     function updateTreeTheme() {
         let light = null
         const candidates = [
@@ -7105,6 +7157,7 @@
             if (log) log.style.setProperty('background-color', surface, 'important')
         }
         applyLightControlStyles()
+        syncSkillTabAccent()
     }
 
     function start() {
@@ -7142,6 +7195,7 @@
         }, 2500)
         setInterval(() => { if (state.skillActive) loadTreeUpdates() }, 600000)
         updateTreeTheme()
+        syncSkillTabAccent()
         try {
             new MutationObserver(updateTreeTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] })
             new MutationObserver(updateTreeTheme).observe(document.body, { attributes: true, attributeFilter: ['class', 'style'] })

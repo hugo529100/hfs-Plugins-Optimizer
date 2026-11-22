@@ -8,12 +8,20 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 38.1
+exports.version = 38.9
 exports.apiRequired = [12.7, 13.72]
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "Hug3O/Plugins-Optimizer"
 exports.preview = []
 exports.changelog = [
+    { version: 38.9, message: "Drive the PLUGIN TREE tab text color from the current sidebar/native selection accent instead of a fixed fallback." },
+    { version: 38.8, message: "Highlight the PLUGIN TREE tab label in the theme accent color." },
+    { version: 38.7, message: "Draw a 4px rounded outline around the PLUGIN TREE tab." },
+    { version: 38.6, message: "Re-dock the Optimizer panel below the tab strip and scroll the tabs to the top when switching from Check Updates." },
+    { version: 38.5, message: "Hide the large native Plugins page heading so all plugin tabs share the same top alignment." },
+    { version: 38.4, message: "Preserve the page header above the tab strip when opening Optimizer from Updates, keeping the tab at the native position." },
+    { version: 38.3, message: "Automatically remove tree nodes that are neither installed nor starred instead of keeping them in hidden rows." },
+    { version: 38.2, message: "Capitalize the first letter of every plugin display name." },
     { version: 38.1, message: "Support string-array select options so Video-player's Error Notification Style shows Overlay/Toast instead of undefined." },
     { version: 38, message: "Keep the version-change strip on the left border and move the config-change strip to the right border." },
     { version: 37.9, message: "Make change-signal strip colors fully opaque while keeping the fade pulse animation." },
