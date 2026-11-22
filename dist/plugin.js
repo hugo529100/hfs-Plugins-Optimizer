@@ -8,12 +8,14 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 38.9
+exports.version = 39.1
 exports.apiRequired = [12.7, 13.72]
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "Hug3O/Plugins-Optimizer"
 exports.preview = []
 exports.changelog = [
+    { version: 39.1, message: "Remove the non-functional Restart plugin button and let the Optimizer panel content reach the bottom edge." },
+    { version: 39, message: "Move Save settings and Restart plugin to the top-right Optimizer header." },
     { version: 38.9, message: "Drive the PLUGIN TREE tab text color from the current sidebar/native selection accent instead of a fixed fallback." },
     { version: 38.8, message: "Highlight the PLUGIN TREE tab label in the theme accent color." },
     { version: 38.7, message: "Draw a 4px rounded outline around the PLUGIN TREE tab." },

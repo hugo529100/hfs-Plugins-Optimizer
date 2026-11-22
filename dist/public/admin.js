@@ -747,6 +747,8 @@
                 <div class="opt-head-actions">
                     <button type="button" class="opt-btn" data-opt-refresh title="Refresh status">${ICONS.refresh}<span>Refresh</span></button>
                     <button type="button" class="opt-btn" data-opt-native title="Open the plugin's native Options dialog">Native options</button>
+                    <span class="opt-save-result" data-opt-save-result></span>
+                    <button type="button" class="opt-btn opt-primary" data-opt-save>Save settings</button>
                 </div>
             </div>
             <div class="opt-hint">
@@ -807,11 +809,6 @@
                     </label>
                 </section>
             </div>
-            <div class="opt-footer">
-                <button type="button" class="opt-btn opt-primary" data-opt-save>Save settings</button>
-                <button type="button" class="opt-btn" data-opt-restart>Restart plugin</button>
-                <span class="opt-save-result" data-opt-save-result></span>
-            </div>
         `
         panel.addEventListener('input', () => { state.dirty = true })
         panel.addEventListener('change', () => { state.dirty = true })
@@ -825,7 +822,6 @@
             if (t.dataset.optClearBlacklist !== undefined) { clearBlacklist(); return }
             if (t.dataset.optSync !== undefined) { syncCatalog(); return }
             if (t.dataset.optSave !== undefined) { saveSettings(); return }
-            if (t.dataset.optRestart !== undefined) { restartPlugin(); return }
         })
         if (tabsRoot.nextSibling) root.insertBefore(panel, tabsRoot.nextSibling)
         else root.appendChild(panel)
@@ -6442,7 +6438,7 @@
             .MuiDataGrid-row.opt-row-hidden { display: none !important; }
             .MuiDataGrid-row.opt-row-revealed { opacity: .42; }
             .MuiDataGrid-row.opt-row-revealed:hover { opacity: .8; }
-            .opt-panel { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 16px 28px; box-sizing: border-box; font: inherit; }
+            .opt-panel { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 16px 0; margin-bottom: 0; box-sizing: border-box; font: inherit; }
             .opt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
             .opt-title { font-size: 1.15rem; font-weight: 700; }
             .opt-sub { font-size: .78rem; opacity: .72; margin-top: 3px; }
