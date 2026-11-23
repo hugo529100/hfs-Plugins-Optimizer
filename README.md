@@ -1,4 +1,6 @@
 
+This management system makes it convenient for everyone, after installation, to intuitively browse from this blueprint all the plugins I am currently developing, refining, and using, and to easily install and activate them at any time.
+
 
 GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree.
 
