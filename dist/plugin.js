@@ -8,12 +8,16 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 39.8
+exports.version = 40.2
 exports.apiRequired = [12.7, 13.72]
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "hugo529100/hfs-Plugins-Optimizer"
 exports.preview = []
 exports.changelog = [
+    { version: 40.2, message: "After a plugin update with existing storage, offer a one-time Restore toast to refresh the tree layout." },
+    { version: 40.1, message: "Show the trash action on missing tree nodes and remove them only after explicit confirmation." },
+    { version: 40, message: "Keep uninstalled/unstarred tree nodes until the user explicitly deletes them with the trash button." },
+    { version: 39.9, message: "Keep expanded hidden-node settings above surrounding rows and give multiple open panels ordered stacking." },
     { version: 39.8, message: "Remove the duplicate plugin name from the inline Settings header." },
     { version: 39.7, message: "Outline the author name with a thin rounded border." },
     { version: 39.6, message: "Show the Repo/plugin/author identity row even when a plugin declares no quick settings." },
@@ -542,6 +546,7 @@ exports.init = async api => {
     const activeDownloads = new Map()
     let hiddenCache = []
     let treeCache = null
+    let hasSavedTreeStorage = false
 
     const DEFAULT_PROXY_HOST = '192.168.1.224'
     const DEFAULT_PROXY_PORT = 10809
@@ -688,12 +693,14 @@ exports.init = async api => {
         // The saved tree is authoritative. The live plugin list only decorates
         // it, so plugin updates and temporary missing rows never rebuild or
         // erase the user's branch assignments.
-        let tree = await readJson(TREE_FILE).catch(() => null)
+        const storedTree = await readJson(TREE_FILE).catch(() => null)
+        let tree = storedTree
         let fromBackup = false
         if (!isValidTree(tree)) {
             tree = await readJson(TREE_BACKUP_FILE).catch(() => null)
             fromBackup = isValidTree(tree)
         }
+        hasSavedTreeStorage = isValidTree(storedTree) || fromBackup
         if (!isValidTree(tree)) {
             tree = await readJson(TREE_DEFAULT).catch(() => null)
             fromBackup = false
@@ -2389,7 +2396,7 @@ exports.init = async api => {
             const base = (ctx.state?.revProxyPath || '') + '/~/plugins/Plugins-Optimizer/admin.js'
             const src = `${base}?v=${encodeURIComponent(String(exports.version))}`
             const hidden = JSON.stringify(hiddenList()).replace(/</g, '\\u003c')
-            const data = `<script>window.__OPTIMIZER_HIDDEN__=${hidden};window.__OPTIMIZER_TOKEN__=${JSON.stringify(ADMIN_TOKEN)}</script>`
+            const data = `<script>window.__OPTIMIZER_HIDDEN__=${hidden};window.__OPTIMIZER_TOKEN__=${JSON.stringify(ADMIN_TOKEN)};window.__OPTIMIZER_VERSION__=${JSON.stringify(String(exports.version))};window.__OPTIMIZER_HAS_TREE__=${hasSavedTreeStorage ? 'true' : 'false'}</script>`
             const tag = `<script id="plugins-optimizer-admin" src="${src}"></script>`
             // Load in <head> (before the admin module) so we can quiet the live
             // plugin-list EventSource before React creates it. The script itself

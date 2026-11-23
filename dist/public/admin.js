@@ -98,6 +98,7 @@
         descriptionsLoaded: false,
         treePan: { x: 24, y: 20 },
         treeZoom: .9,
+        selfVersion: '',
         treeDrag: null,
         treeSaveTimer: null,
         treeSettings: new Set(),
@@ -233,7 +234,7 @@
 
     const rest = (name, params, opts) => apiCall('_' + name, params, opts)
 
-    function toast(message, type, ms) {
+    function toast(message, type, ms, action = null) {
         const fullscreenPanel = document.fullscreenElement
             || (state.skillPanel?.classList.contains('skill-fullscreen') ? state.skillPanel : null)
         const mount = fullscreenPanel || document.body
@@ -245,7 +246,21 @@
         if (host.parentElement !== mount) mount.appendChild(host)
         const el = document.createElement('div')
         el.className = 'opt-toast' + (type ? ' opt-toast-' + type : '')
-        el.textContent = String(message)
+        const text = document.createElement('span')
+        text.className = 'opt-toast-text'
+        text.textContent = String(message)
+        el.appendChild(text)
+        if (action) {
+            const btn = document.createElement('button')
+            btn.type = 'button'
+            btn.className = 'opt-toast-action'
+            btn.textContent = action.label || 'OK'
+            btn.addEventListener('click', () => {
+                el.remove()
+                action.onClick?.()
+            })
+            el.appendChild(btn)
+        }
         host.appendChild(el)
         setTimeout(() => { el.classList.add('opt-toast-out'); setTimeout(() => el.remove(), 250) }, ms || 3200)
     }
@@ -1813,16 +1828,17 @@
         ])
         const rows = (data?.list || []).map(parseRowConfig)
         state.pluginRows = rows
+        state.selfVersion = String(versionData?.versions?.['Plugins-Optimizer'] || '')
         state.installed = makeInstalledMap(rows)
         recordPluginSignals(rows, versionData?.versions || {})
         canonicalizeTreeIds()
-        pruneOrphanTreePlugins()
         state.treeLoaded = true
         renderTree()
         refreshHiddenVisibility()
         await loadUiState()
         await loadDescriptions()
         renderTree()
+        maybeOfferLayoutRestore()
     }
 
     async function refreshTreeInstalled(expected = null) {
@@ -1852,7 +1868,6 @@
         }
         recordPluginSignals(state.pluginRows, versionData?.versions || {})
         canonicalizeTreeIds()
-        pruneOrphanTreePlugins()
         renderTree()
         const api = getGridApi()
         if (api) {
@@ -3802,7 +3817,7 @@
             const node = nodes.find(n => n.dataset.key === key)
             if (node) node.classList.add('settings-focus')
         }
-        for (const id of focusedIds) {
+        focusedIds.forEach((id, stackIndex) => {
             const category = (state.tree?.categories || []).find(cat =>
                 (cat.plugins || []).some(pid => samePluginId(pid, id)))
             const main = category
@@ -3835,8 +3850,11 @@
                 if (node) node.classList.add('settings-focus')
             }
             const focusNode = nodes.find(n => n.dataset.key === 'plugin:' + id)
-            if (focusNode) focusNode.classList.add('settings-open')
-        }
+            if (focusNode) {
+                focusNode.classList.add('settings-open')
+                focusNode.style.zIndex = String(90 + stackIndex)
+            }
+        })
     }
 
     function createSettingsIdentity(canonical, meta) {
@@ -4089,27 +4107,42 @@
         }
     }
 
-    function pruneOrphanTreePlugins() {
-        if (!state.tree || !state.installed?.size) return 0
-        const removed = new Set()
-        const keep = id => !!state.installed.get(id) || treeIsStarred(id)
-        const filterList = list => (list || []).filter(id => {
-            if (keep(id)) return true
-            removed.add(id)
-            return false
-        })
-        for (const root of state.tree.roots || []) root.plugins = filterList(root.plugins)
-        for (const main of state.tree.mains || []) main.plugins = filterList(main.plugins)
-        for (const cat of state.tree.categories || []) cat.plugins = filterList(cat.plugins)
-        if (!removed.size) return 0
-        for (const id of removed) {
-            delete state.tree.positions?.['plugin:' + id]
-            delete state.tree.pluginMeta?.[id]
-            delete state.tree.pluginColors?.[id]
+    const LAYOUT_NOTICE_KEY = 'pluginsOptimizer.layoutRestoreNotice.v1'
+    let layoutNoticeChecked = false
+
+    async function restoreLayoutFromNotice() {
+        try {
+            const r = await rest('pluginsOptimizer_restoreLatest')
+            if (!r?.tree) throw Error('no saved layout snapshot')
+            state.tree = normalizeTree(r.tree)
+            canonicalizeTreeIds()
+            writeTreeBackup(state.tree)
+            state.treeLoaded = true
+            renderTree()
+            refreshHiddenVisibility()
+            await saveTreeNow()
+            toast('PluginTree layout restored')
+        } catch (e) {
+            toast('Restore failed: ' + (e.message || 'unknown error'), 'error', 9000)
         }
-        state.tree.updatedAt = Date.now()
-        saveTreeNow().catch(() => {})
-        return removed.size
+    }
+
+    function maybeOfferLayoutRestore() {
+        if (layoutNoticeChecked || !state.tree) return
+        layoutNoticeChecked = true
+        const version = String(window.__OPTIMIZER_VERSION__ || state.selfVersion || '')
+        if (!version) return
+        let last = ''
+        try { last = localStorage.getItem(LAYOUT_NOTICE_KEY) || '' } catch {}
+        if (last === version) return
+        const positionCount = Object.keys(state.tree.positions || {}).length
+        const hasStorage = window.__OPTIMIZER_HAS_TREE__ === true || positionCount > 0
+        if (!hasStorage) return
+        try { localStorage.setItem(LAYOUT_NOTICE_KEY, version) } catch {}
+        toast('PluginTree updated to v' + version + '. Load the saved layout once to refresh positions.', undefined, 20000, {
+            label: 'Restore',
+            onClick: restoreLayoutFromNotice,
+        })
     }
 
     const SIGNAL_KEY = 'pluginsOptimizer.pluginSignals.v1'
@@ -4263,13 +4296,17 @@
         gear.innerHTML = treeIcon('settings', 15)
         gear.title = 'Preview settings'
         gear.addEventListener('click', ev => { ev.stopPropagation(); toggleInlineSettings(item.id) })
-        if (installed && !isSelfPlugin(item.id)) {
+        if (!isSelfPlugin(item.id)) {
             const del = document.createElement('button')
             del.type = 'button'
             del.className = 'skill-icon danger'
             del.innerHTML = treeIcon('delete', 15)
-            del.title = 'Uninstall ' + item.id
-            del.addEventListener('click', ev => { ev.stopPropagation(); uninstallTreePlugin(item.id) })
+            del.title = installed ? 'Uninstall ' + item.id : 'Remove ' + item.id + ' from PluginTree'
+            del.addEventListener('click', ev => {
+                ev.stopPropagation()
+                if (installed) uninstallTreePlugin(item.id)
+                else removeMissingTreePlugin(item.id)
+            })
             actions.appendChild(del)
         }
         if (installed) {
@@ -4781,6 +4818,12 @@
         delete state.tree.positions['plugin:' + id]
         saveTreeNow()
         scheduleTreeRefresh()
+    }
+
+    async function removeMissingTreePlugin(id) {
+        if (!(await uiConfirm('Remove ' + id + ' from PluginTree?', 'Remove'))) return
+        removePluginFromTree(id)
+        toast('Removed ' + id + ' from PluginTree')
     }
 
     async function performPowerAction(id, running) {
@@ -6462,7 +6505,10 @@
             .opt-footer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(127,127,127,.25); }
             .opt-save-result { font-size: .76rem; opacity: .75; }
             #optimizer-toast-host { position: fixed; right: 16px; top: 70px; bottom: auto; z-index: 100000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
-            .opt-toast { pointer-events: auto; background: color-mix(in srgb, var(--active-bg, #1e1e1e) 82%, #000); color: var(--active-text, #eee) !important; border: 1px solid rgba(255,255,255,.14); border-left: 4px solid #ff9800; border-radius: 6px; padding: 9px 13px; font-size: .82rem; box-shadow: 0 6px 20px rgba(0,0,0,.35); max-width: min(460px, 80vw); transition: opacity .2s, transform .2s; }
+            .opt-toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; background: color-mix(in srgb, var(--active-bg, #1e1e1e) 82%, #000); color: var(--active-text, #eee) !important; border: 1px solid rgba(255,255,255,.14); border-left: 4px solid #ff9800; border-radius: 6px; padding: 9px 13px; font-size: .82rem; box-shadow: 0 6px 20px rgba(0,0,0,.35); max-width: min(460px, 80vw); transition: opacity .2s, transform .2s; }
+            .opt-toast-text { flex: 1 1 auto; min-width: 0; }
+            .opt-toast-action { flex: 0 0 auto; padding: 2px 8px; border: 1px solid rgba(255,153,0,.7); border-radius: 3px; background: transparent; color: #ff9900 !important; font: inherit; font-size: .74rem; cursor: pointer; }
+            .opt-toast-action:hover { background: rgba(255,153,0,.14); }
             .opt-toast-error { border-left-color: #ef5350; }
             @keyframes opt-error-border { 0%, 100% { border-color: rgba(239,83,80,.35); } 50% { border-color: rgba(239,83,80,.95); } }
             .opt-toast-out { opacity: 0; transform: translateY(-6px); }
@@ -6620,6 +6666,8 @@
             .skill-plugin.stopped .skill-card > *,
             .skill-plugin.missing .skill-card > * { opacity: .7; filter: grayscale(1) brightness(.82); }
             .skill-node.hidden-expanded { z-index: 60; }
+            .skill-node.hidden-expanded.settings-focus { z-index: 70; }
+            .skill-node.hidden-expanded.settings-open { z-index: 90; }
             .skill-node.hidden-expanded::before {
                 content: '';
                 position: absolute;
