@@ -1489,6 +1489,11 @@
         return String(id || '').toLowerCase().replace(/^hfs-/, '').replace(/-main$/, '')
     }
 
+    function pluginAuthorDisplay(author) {
+        const name = String(author || '').trim()
+        return /^(?:hugo529100|hugo29100)$/i.test(name) ? 'Hug3O' : name
+    }
+
     function pluginDisplayName(id) {
         const name = String(id || '')
             .replace(/^(?:hugo529100|hugo29100)[-_]/i, '')
@@ -1944,13 +1949,28 @@
             const data = await apiCall('get_plugin_updates', {}, { timeout: 60000 })
             const updates = new Set()
             for (const row of data?.list || []) {
-                if (row?.id) updates.add(pluginMatchKey(row.id))
-                if (row?.repo) updates.add(pluginMatchKey(row.repo))
+                if (!row) continue
+                if (row.downgrade === true) continue
+                if (row.installedVersion != null && row.version != null
+                    && comparePluginVersions(row.installedVersion, row.version) > 0) continue
+                if (row.id) updates.add(pluginMatchKey(row.id))
+                if (row.repo) updates.add(pluginMatchKey(row.repo))
             }
             state.updates = updates
             renderTree()
         } catch {}
         finally { state.updatesLoading = false }
+    }
+
+    function comparePluginVersions(a, b) {
+        const left = String(a ?? '').split(/[^0-9]+/).filter(Boolean).map(Number)
+        const right = String(b ?? '').split(/[^0-9]+/).filter(Boolean).map(Number)
+        const length = Math.max(left.length, right.length)
+        for (let i = 0; i < length; i++) {
+            const diff = (left[i] || 0) - (right[i] || 0)
+            if (diff) return diff > 0 ? 1 : -1
+        }
+        return 0
     }
 
     function pluginHasUpdate(id) {
@@ -3604,7 +3624,7 @@
         const head = document.createElement('div')
         head.className = 'skill-inline-head'
         const title = document.createElement('strong')
-        title.textContent = 'Settings | ' + id
+        title.textContent = 'Settings'
         const save = document.createElement('button')
         save.type = 'button'
         save.className = 'skill-inline-save'
@@ -3819,6 +3839,26 @@
         }
     }
 
+    function createSettingsIdentity(canonical, meta) {
+        const repoOwner = meta?.repo ? String(meta.repo).split('/')[0] : meta?.author
+        const identity = document.createElement('div')
+        identity.className = 'skill-settings-identity'
+        const repoLabel = document.createElement('span')
+        repoLabel.className = 'skill-settings-repo-label'
+        repoLabel.textContent = 'Repo:'
+        const softwareName = document.createElement('span')
+        softwareName.className = 'skill-settings-name'
+        softwareName.textContent = pluginDisplayName(canonical)
+        identity.append(repoLabel, softwareName)
+        if (repoOwner || meta?.author) {
+            const author = document.createElement('span')
+            author.className = 'skill-settings-author'
+            author.textContent = pluginAuthorDisplay(repoOwner || meta.author)
+            identity.appendChild(author)
+        }
+        return identity
+    }
+
     async function openTreeSettings(id) {
         if (state.settingsPanels.has(id)) return
         const node = inlineNode(id)
@@ -3941,12 +3981,7 @@
             renderConfigForm(canonical, row, fields, values, panel)
             const metaBlock = document.createElement('div')
             metaBlock.className = 'skill-settings-meta'
-            if (meta.repo) {
-                const repo = document.createElement('div')
-                repo.className = 'skill-settings-repo'
-                repo.textContent = 'Repo: ' + meta.repo
-                metaBlock.appendChild(repo)
-            }
+            metaBlock.appendChild(createSettingsIdentity(canonical, meta))
             if (description) {
                 const text = document.createElement('p')
                 text.className = 'skill-settings-description'
@@ -4045,7 +4080,13 @@
                 note.appendChild(text)
             }
         }
-        if (state.settingsPanels.get(id) === panel) panel.body.appendChild(note)
+        const metaBlock = document.createElement('div')
+        metaBlock.className = 'skill-settings-meta'
+        metaBlock.appendChild(createSettingsIdentity(canonical, meta))
+        if (state.settingsPanels.get(id) === panel) {
+            panel.body.insertBefore(metaBlock, panel.body.firstChild)
+            panel.body.appendChild(note)
+        }
     }
 
     function pruneOrphanTreePlugins() {
@@ -5162,65 +5203,8 @@
         }
     }
 
-    function fallbackRepoKey(value) {
-        return String(value || '').split('/').pop().toLowerCase()
-            .replace(/^hfs-/, '').replace(/-main$/, '').replace(/[^a-z0-9]/g, '')
-    }
-
-    function hugoFallbackRepos(repo, id) {
-        if (!/Hug3O/i.test(repo)) return []
-        const names = []
-        for (const source of [repo, id]) {
-            const tail = String(source || '').split('/').pop()
-            if (!tail) continue
-            names.push(tail, tail.replace(/-main$/i, ''))
-        }
-        const expanded = []
-        for (const name of names) {
-            if (!name) continue
-            expanded.push(name)
-            if (!/^hfs-/i.test(name)) expanded.push('hfs-' + name)
-        }
-        const candidates = []
-        for (const name of expanded.filter(Boolean)) {
-            candidates.push('hugo529100/' + name, 'Hugo29100/' + name)
-        }
-        return [...new Set(candidates)]
-    }
-
     async function downloadTreePlugin(id, repo, opts = {}) {
-        try {
-            return await apiCall('download_plugin', { id: repo, branch: 'main', stop: false }, { timeout: 180000, signal: opts.signal })
-        } catch (firstError) {
-            if (opts.signal?.aborted) throw firstError
-            if (firstError?.code === 424) throw firstError
-            const fallbacks = hugoFallbackRepos(repo, id)
-            if (/Hug3O/i.test(repo)) {
-                try {
-                    const catalog = await rest('pluginsOptimizer_catalog')
-                    const keys = new Set([fallbackRepoKey(repo), fallbackRepoKey(id)].filter(Boolean))
-                    const hugo = []
-                    const other = []
-                    for (const entry of catalog?.entries || []) {
-                        const candidate = entry?.repo || entry?.id
-                        if (!candidate) continue
-                        const candidateKey = fallbackRepoKey(candidate)
-                        if (!candidateKey || !keys.has(candidateKey)) continue
-                        if (/^(hugo529100|Hugo29100)\//i.test(candidate)) hugo.push(candidate)
-                        else other.push(candidate)
-                    }
-                    fallbacks.push(...hugo, ...other)
-                } catch {}
-            }
-            let lastError = firstError
-            for (const fallback of [...new Set(fallbacks)]) {
-                if (fallback === repo) continue
-                try {
-                    return await apiCall('download_plugin', { id: fallback, branch: 'main', stop: false }, { timeout: 180000, signal: opts.signal })
-                } catch (e) { lastError = e }
-            }
-            throw lastError
-        }
+        return apiCall('download_plugin', { id: repo, branch: 'main', stop: false }, { timeout: 180000, signal: opts.signal })
     }
 
     async function processDownloadQueue() {
@@ -6308,7 +6292,7 @@
         const body = state.settingsEl?.querySelector('[data-skill-settings-body]')
         const title = state.settingsEl?.querySelector('[data-skill-settings-title]')
         if (!body || !title) return
-        title.textContent = 'Settings | ' + id
+        title.textContent = 'Settings'
         body.innerHTML = '<div class="skill-settings-loading">Loading...</div>'
         const row = state.installed.get(id)
         const fields = row?.config && typeof row.config === 'object' ? row.config : {}
@@ -6721,6 +6705,10 @@
             .skill-settings-online small { opacity: .65; word-break: break-all; font-size: .7rem; }
             .skill-settings-repo { margin: 0 0 5px; font-size: .7rem; color: var(--active-comment-contrast, #aaa) !important; opacity: .75; word-break: break-all; }
             .skill-settings-meta { margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid rgba(127,127,127,.18); }
+            .skill-settings-identity { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 10px; margin-bottom: 5px; font-size: .72rem; color: var(--active-text, #ddd) !important; }
+            .skill-settings-repo-label { color: var(--active-comment-contrast, #999) !important; }
+            .skill-settings-name { font-weight: 600; }
+            .skill-settings-author { opacity: .9; padding: 0 4px; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.45)); border-radius: 3px; line-height: 1.45; }
             .skill-settings-description { margin: 0 0 5px; font-size: .72rem; line-height: 1.35; color: var(--active-text, #ddd) !important; opacity: .86; }
             .skill-node.output-open { z-index: 100; }
             .skill-output-pop { position: absolute; left: 0; top: calc(100% + 4px); z-index: 110; transition: top .15s ease; display: flex; flex-direction: column; width: 100%; max-height: 280px; overflow: hidden; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.6)); border-radius: 4px; background-color: var(--active-bg, #1e1e1e) !important; color: var(--active-text, #eee) !important; box-shadow: 0 0 0 4px var(--active-bg, #1e1e1e), 0 14px 20px -8px rgba(0,0,0,.72) !important; isolation: isolate; }

@@ -8,12 +8,19 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 39.1
+exports.version = 39.8
 exports.apiRequired = [12.7, 13.72]
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
-exports.repo = "Hug3O/Plugins-Optimizer"
+exports.repo = "hugo529100/hfs-Plugins-Optimizer"
 exports.preview = []
 exports.changelog = [
+    { version: 39.8, message: "Remove the duplicate plugin name from the inline Settings header." },
+    { version: 39.7, message: "Outline the author name with a thin rounded border." },
+    { version: 39.6, message: "Show the Repo/plugin/author identity row even when a plugin declares no quick settings." },
+    { version: 39.5, message: "Simplify settings metadata to a single Repo: plugin-name author-name line." },
+    { version: 39.4, message: "Show Software and Author labels side by side in English in the settings metadata row." },
+    { version: 39.3, message: "Split repo metadata into software name and author (hugo529100 shown as Hug3O), and remove Hug3O download fallback attempts." },
+    { version: 39.2, message: "Do not mark yellow update outlines when the installed version is newer than the online version." },
     { version: 39.1, message: "Remove the non-functional Restart plugin button and let the Optimizer panel content reach the bottom edge." },
     { version: 39, message: "Move Save settings and Restart plugin to the top-right Optimizer header." },
     { version: 38.9, message: "Drive the PLUGIN TREE tab text color from the current sidebar/native selection accent instead of a fixed fallback." },
