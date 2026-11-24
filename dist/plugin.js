@@ -8,12 +8,17 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 40.2
+exports.version = 40.7
 exports.apiRequired = [12.7, 13.72]
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "hugo529100/hfs-Plugins-Optimizer"
 exports.preview = []
 exports.changelog = [
+    { version: 40.7, message: "Hide the PLUGIN TREE tab button since the sidebar already provides the entry point." },
+    { version: 40.6, message: "Restore the thick left border on running plugin cards without overriding its marker color." },
+    { version: 40.5, message: "Only correct the running-plugin border color while a theme is active, keeping the left border uncolored by the running state." },
+    { version: 40.4, message: "Without an active AdminThemeCustomizer theme, running plugin cards use the original green border on all sides, including over category markers." },
+    { version: 40.3, message: "Fall back to the original green running-plugin border when AdminThemeCustomizer is not providing an accent color." },
     { version: 40.2, message: "After a plugin update with existing storage, offer a one-time Restore toast to refresh the tree layout." },
     { version: 40.1, message: "Show the trash action on missing tree nodes and remove them only after explicit confirmation." },
     { version: 40, message: "Keep uninstalled/unstarred tree nodes until the user explicitly deletes them with the trash button." },

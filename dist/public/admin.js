@@ -440,8 +440,12 @@
                 activateTab()
             })
             const indicator = $('.MuiTabs-indicator', list)
-            if (indicator) list.insertBefore(tab, indicator)
-            else list.appendChild(tab)
+            try {
+                if (indicator && indicator.parentElement === list) list.insertBefore(tab, indicator)
+                else list.appendChild(tab)
+            } catch {
+                try { list.appendChild(tab) } catch {}
+            }
             if (!list.dataset.optimizerBound) {
                 list.dataset.optimizerBound = '1'
                 list.addEventListener('click', ev => {
@@ -550,8 +554,12 @@
         tab.style.order = '-1'
         if (tab.parentElement !== list) {
             const indicator = $('.MuiTabs-indicator', list)
-            if (indicator) list.insertBefore(tab, indicator)
-            else list.appendChild(tab)
+            try {
+                if (indicator && indicator.parentElement === list) list.insertBefore(tab, indicator)
+                else list.appendChild(tab)
+            } catch {
+                try { list.appendChild(tab) } catch {}
+            }
         }
         state.skillTab = tab
         if (!list.dataset.skillBound) {
@@ -6565,7 +6573,7 @@
                 z-index: 2;
             }
             /* Skill Tree */
-            .opt-skill-tab { order: -1; white-space: nowrap; margin: 4px 6px 4px 0 !important; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.55)) !important; border-radius: 4px !important; color: var(--active-text, #ff9800) !important; opacity: 1 !important; }
+            .opt-skill-tab { display: none !important; }
             .opt-skill-tab.Mui-selected { color: var(--active-text, #ff9800) !important; font-weight: 600; border-color: var(--active-text, #ff9800) !important; }
             .skill-panel, .skill-panel *, .opt-toast {
                 box-shadow: none !important;
@@ -6660,7 +6668,7 @@
             .skill-menu button:hover { background-color: var(--active-mild-contrast, rgba(127,127,127,.16)) !important; }
             .skill-menu button.danger { color: var(--active-danger, #ef5350) !important; }
             .skill-card { display: flex; align-items: center; gap: 4px; height: 52px; padding: 0 4px 0 3px; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.4)); border-radius: 4px; background-color: var(--active-button-bg, #1b1b1b) !important; color: var(--active-text, #e8e8e8) !important; cursor: grab; }
-            .skill-plugin.running .skill-card { border-color: var(--active-good-contrast, #4caf50); border-left: 3px solid var(--active-focus-color, #ff9800) !important; }
+            .skill-plugin.running .skill-card { border-color: var(--active-good-contrast, #4caf50); border-left-width: 3px !important; }
             .skill-plugin.stopped .skill-card { opacity: 1; filter: none; }
             .skill-plugin.missing .skill-card { border-style: dashed; opacity: 1; filter: none; }
             .skill-plugin.stopped .skill-card > *,
@@ -6707,6 +6715,11 @@
             .skill-plugin.has-color .skill-card { border-color: var(--branch-color) !important; }
             .skill-plugin.has-category-marker .skill-card { border-left-color: var(--category-marker-color) !important; }
             .skill-plugin.has-branch-marker .skill-card { border-left-color: var(--branch-marker-color) !important; }
+            body[class*="theme-"] .skill-plugin.running .skill-card {
+                border-top-color: #4caf50 !important;
+                border-right-color: #4caf50 !important;
+                border-bottom-color: #4caf50 !important;
+            }
             .skill-plugin.missing.hug3o .skill-card { border-color: var(--active-text, rgba(255,153,0,.45)); }
             .skill-name { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: .94rem; font-weight: 500; line-height: 1.15; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; white-space: normal; cursor: pointer; }
             .skill-ver { flex: 0 0 auto; font-size: .8rem; opacity: .7; color: var(--active-comment-contrast, inherit) !important; }
