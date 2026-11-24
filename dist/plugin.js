@@ -8,7 +8,7 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 40.8
+exports.version = 40.9
 exports.apiRequired = [12.7, 13.72]
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "hugo529100/hfs-Plugins-Optimizer"
@@ -286,12 +286,21 @@ exports.init = async api => {
     }
 
     const GITHUB_RAW_PATH_RE = /^\/[^/]+\/[^/]+\/raw\//
+    const GITHUB_RELEASE_ASSET_RE = /^\/repos\/[^/]+\/[^/]+\/releases\/assets\//i
+    const HFS_RELEASE_RE = /^\/repos\/rejetto\/hfs\/releases(?:\/|$)/i
     const isCacheableMethod = m => m === 'GET' || m === 'HEAD'
+    const isReleaseAssetRequest = (hostname, pathname) =>
+        String(hostname || '').toLowerCase() === 'api.github.com'
+        && GITHUB_RELEASE_ASSET_RE.test(String(pathname || ''))
+    const isHfsReleaseRequest = (hostname, pathname) =>
+        String(hostname || '').toLowerCase() === 'api.github.com'
+        && HFS_RELEASE_RE.test(String(pathname || ''))
 
     function isCacheTarget(hostnameRaw, pathname) {
         if (!hostnameRaw) return false
         const h = String(hostnameRaw).toLowerCase()
         const p = String(pathname || '')
+        if (isReleaseAssetRequest(h, p)) return false
         if (api.getConfig('cacheApi') && h === 'api.github.com') return true
         if (api.getConfig('cacheRaw') && h === 'raw.githubusercontent.com') return true
         if (api.getConfig('cacheRaw') && h === 'github.com' && GITHUB_RAW_PATH_RE.test(p)) return true
@@ -983,7 +992,23 @@ exports.init = async api => {
             stats.errors++
             throw e
         }
-        const status = res.statusCode
+        let status = res.statusCode
+        if (proxy && (status === 403 || status === 429) && new URL(url).hostname === 'api.github.com') {
+            try {
+                const original = res
+                const direct = await performUpstream(url, method, headers, undefined, {}, null)
+                if (direct.statusCode < 400) {
+                    try { original.destroy() } catch {}
+                    res = direct
+                    status = direct.statusCode
+                    logDebug(`proxy rate limit on ${method} ${url}; retried direct (${status})`)
+                } else {
+                    try { direct.resume() } catch {}
+                }
+            } catch (e) {
+                logDebug(`direct retry failed for ${url}: ${e.message}`)
+            }
+        }
 
         if (status === 304 && oldMeta) {
             logDebug(`304 ${method} ${url}`)
@@ -1173,12 +1198,13 @@ exports.init = async api => {
             const parsed = new URL(url)
             const proxy = effectiveProxy()
             const useProxy = !!proxy && isGithubHost(parsed.hostname)
+                && !isReleaseAssetRequest(parsed.hostname, parsed.pathname)
             const cacheable = networkOn() && api.getConfig('cacheEnabled')
                 && isCacheableMethod(method)
                 && isCacheTarget(parsed.hostname, parsed.pathname)
             const key = cacheable ? keyFor(url, method) : null
 
-            if (isBlacklisted(url, method)) {
+            if (isBlacklisted(url, method) && !isHfsReleaseRequest(parsed.hostname, parsed.pathname)) {
                 logDebug(`BLACKLIST ${method} ${url}`)
                 return fail(Error(`blacklisted after repeated failures: ${method} ${url}`))
             }
@@ -1196,9 +1222,9 @@ exports.init = async api => {
                     const maxAgeMs = (api.getConfig('maxAgeDays') || 30) * 86400 * 1000
                     const isRateLimitEntry = cachedMeta.source === 'ratelimit'
                     const fresh = !isRateLimitEntry && age < ttlH * 3600 * 1000
-                    // A cached 403/429 must never mask the real answer for days. Retry
-                    // after a short cooldown instead.
-                    const usable = isRateLimitEntry ? age < 60_000 : age < maxAgeMs
+                    // Never serve a cached 403/429: retry upstream and fall back
+                    // to a direct GitHub request when the proxy is rate-limited.
+                    const usable = !isRateLimitEntry && age < maxAgeMs
                     if (fresh || usable) {
                         const body = await readBody(key)
                         if (body) {
@@ -1230,7 +1256,22 @@ exports.init = async api => {
             const bodyBuf = chunks.length ? Buffer.concat(chunks) : undefined
 
             if (!cacheable) {
-                const res = await performUpstream(url, method, headers, bodyBuf, {}, useProxy ? proxy : null)
+                let res = await performUpstream(url, method, headers, bodyBuf, {}, useProxy ? proxy : null)
+                if (useProxy && (res.statusCode === 403 || res.statusCode === 429) && parsed.hostname === 'api.github.com') {
+                    try {
+                        const original = res
+                        const direct = await performUpstream(url, method, headers, bodyBuf, {}, null)
+                        if (direct.statusCode < 400) {
+                            try { original.destroy() } catch {}
+                            res = direct
+                            logDebug(`proxy rate limit on ${method} ${url}; retried direct (${res.statusCode})`)
+                        } else {
+                            try { direct.resume() } catch {}
+                        }
+                    } catch (e) {
+                        logDebug(`direct retry failed for ${url}: ${e.message}`)
+                    }
+                }
                 if (aborted) { res.resume?.(); return }
                 responded = true
                 clearTimer()
