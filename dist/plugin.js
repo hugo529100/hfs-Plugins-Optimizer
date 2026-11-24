@@ -8,8 +8,8 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 40.9
-exports.apiRequired = [12.7, 13.72]
+exports.version = 41.0
+exports.apiRequired = [12.7, 13.73]
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "hugo529100/hfs-Plugins-Optimizer"
 exports.preview = []
