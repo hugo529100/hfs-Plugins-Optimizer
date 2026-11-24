@@ -106,7 +106,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Allows you to turn on other computers in your network remotely using HFS on your home-server",
     "version": 1.22,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "rejetto/reverse-proxy": {
     "id": "reverse-proxy",
@@ -214,7 +214,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Frontend UI customization plugin - Hide/show buttons, reorder menu bar, add refresh, fullscreen controls, tile size toggle, and collapse toggle.",
     "version": 3.2,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-Image-browser": {
     "id": "Image-browser",
@@ -223,7 +223,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "High-efficiency Picasa-style image browser with thumbnail strip, progressive preview, and smart deferred loading.",
     "version": 6.8,
     "source": "plugin",
-    "updatedAt": 1795499173343
+    "updatedAt": 1795508015097
   },
   "rejetto/hfs-subtitles": {
     "id": "subtitles",
@@ -313,7 +313,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Extract Windows icons for files and folders using native Windows icon resources.",
     "version": 2,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "rejetto/hfs-opds": {
     "id": "opds",
@@ -358,7 +358,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Replaces the browser's context menu with the HFS file menu, based on VenB304 and fix. Added support for Chinese and special characters. In mobile mode, long press to bring up the menu.",
     "version": 1.6,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "kran27/code-preview": {
     "id": "code-preview",
@@ -376,7 +376,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Hide specified files and folders from the file list. Supports wildcard patterns for flexible matching.",
     "version": 1,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "buildnbrk/hfs-extension-icons": {
     "id": "extension-icons",
@@ -394,7 +394,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Auto backup descript.ion files",
     "version": 1.1,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "VenB304/hfs-select-icon": {
     "id": "select-icon",
@@ -412,7 +412,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Fade in effect for thumbnails",
     "version": 1.6,
     "source": "plugin",
-    "updatedAt": 1795499173338
+    "updatedAt": 1795508015100
   },
   "hugo529100/hfs-WalkieTalkie": {
     "id": "WalkieTalkie",
@@ -439,7 +439,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Apply retro filters with various effects to all frontend images",
     "version": 1.9,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-Ai-chat": {
     "id": "Ai-chat",
@@ -457,7 +457,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "BMP cached server-side support for HFS - converts BMP to JPG on the fly for preview with Show and generates thumbnails",
     "version": 1.3,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "buildnbrk/hfs-retro-emulator": {
     "id": "buildnbrk/hfs-retro-emulator",
@@ -466,7 +466,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Runs compatible ROM files from your HFS shares in an in-browser emulator (EmulatorJS) for supported retro systems. No ROMs or BIOS files are included.",
     "version": 1,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "buildnbrk/hfs-group-ptt": {
     "id": "group-ptt",
@@ -511,7 +511,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Silence known harmless console errors by keyword",
     "version": 2.2,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "rejetto/hfs-click-icon-to-show": {
     "id": "click-icon-to-show",
@@ -547,7 +547,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Customize file icons",
     "version": 3.34,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-Page-scale-custom": {
     "id": "hugo529100/hfs-Page-scale-custom",
@@ -556,7 +556,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Accessibility helper that lets users customize max-width, zoom scale, and fonts for better readability.",
     "version": 2,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-Disk-monitor": {
     "id": "Disk-monitor",
@@ -601,7 +601,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Launch executable files on the server directly from HTTP File Server version 3 (HFS 3) web interface.",
     "version": null,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-Fixed-folder-order": {
     "id": "hugo529100/hfs-Fixed-folder-order",
@@ -610,7 +610,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Folders first + DESCRIPT.ION comment tag ordering",
     "version": 2.3,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-Banner-footer-plugin": {
     "id": "hugo529100/hfs-Banner-footer-plugin",
@@ -619,7 +619,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Displays a customizable banner and footer, with optional network-based GIF filtering.",
     "version": 2.8,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-Visited-filename": {
     "id": "hugo529100/hfs-Visited-filename",
@@ -628,7 +628,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Visited file indicator, episode tag and new file marker",
     "version": 1.8,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "rejetto/download-manager": {
     "id": "download-manager",
@@ -673,7 +673,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Auto-assign icons for video, audio, image, and script/text files based on their extensions, with customizable extension lists.",
     "version": 1.1,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "rejetto/hfs-mdns": {
     "id": "rejetto/hfs-mdns",
@@ -682,7 +682,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Bonjour/mDNS discovery for HTTP and WebDAV clients",
     "version": 1,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "rejetto/windows-url-files": {
     "id": "windows-url-files",
@@ -727,7 +727,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Text editor with fullscreen dialog, saved versions, unified timeline, VSCode theme. Metadata lives next to the file in cache/docviewer/, keyed by filename (no hashes).",
     "version": 7.4,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-Psd-support": {
     "id": "hugo529100/hfs-Psd-support",
@@ -736,7 +736,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "PSD cached server-side support for HFS - converts PSD composite image to JPG on the fly for preview with Show and generates thumbnails",
     "version": 1.1,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-Prevent-dialog-close": {
     "id": "Prevent-dialog-close",
@@ -817,7 +817,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "hfs-monitor-agent is a plugin developed for HTTP File Server version 3 (HFS 3). It is designed to work with HFS-Monitor, a Windows application for real-time monitoring.",
     "version": null,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-MVfiles-covers": {
     "id": "MVfiles-covers",
@@ -826,7 +826,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Complete media cover/thumbnail extraction and display system - supports video GIF/JPG thumbnails and audio cover extraction",
     "version": 8.1,
     "source": "plugin",
-    "updatedAt": 1795499173350
+    "updatedAt": 1795508015095
   },
   "hugo529100/hfs-Menu-Reorder": {
     "id": "hugo529100/hfs-Menu-Reorder",
@@ -835,7 +835,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Reorder file/folder menu and add visual separators",
     "version": 1.2,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-AdminThemeCustomizer": {
     "id": "AdminThemeCustomizer",
@@ -853,16 +853,16 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Navigation Optimizer: Scroll position memory + Gesture navigation for HFS",
     "version": 2.3,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-Plugins-Optimizer": {
     "id": "Plugins-Optimizer",
     "repo": "hugo529100/hfs-Plugins-Optimizer",
     "author": "hugo529100",
     "description": "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree.",
-    "version": 40.9,
+    "version": 41,
     "source": "plugin",
-    "updatedAt": 1795506536501
+    "updatedAt": 1795508014827
   },
   "hugo529100/hfs-Disable-actions": {
     "id": "hugo529100/hfs-Disable-actions",
@@ -871,7 +871,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Restrict UI for guests: lock actions until login, optionally hide scrollbar",
     "version": 1.6,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-Dashboard": {
     "id": "Dashboard",
@@ -898,7 +898,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Unified keyboard helper for HFS (Enter/Esc, comment Enter saves without closing preview, file-show shortcuts, smooth arrow scrolling, paging navigation incl. PageUp/PageDown/Home/End, and Ctrl+0..9 tile size). Tile-size memory (per folder, expiry, server default) is provided by the Tiles-plus plugin.",
     "version": 2.4,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-Copy-link": {
     "id": "hugo529100/hfs-Copy-link",
@@ -907,7 +907,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Add 'Copy link' for files and 'Copy all links' for folders to right-click menu",
     "version": 1,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "feuerswut/hfs-ip-blocklist": {
     "id": "ip-blocklist",
@@ -934,7 +934,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "A lightweight, convenient note-taking tool built into HFS with multi-tab support, real-time sync, auto-backup, pagination, TXT export, progressive loading, GIF video thumbnails, and unified temp file management.",
     "version": 5.6,
     "source": "plugin",
-    "updatedAt": 1795499173381
+    "updatedAt": 1795508015144
   },
   "hugo529100/hfs-Json-db": {
     "id": "Json-db",
@@ -952,7 +952,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Mouse hover and click sounds",
     "version": 1.6,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "rejetto/hfs-local-player": {
     "id": "local-player",
@@ -979,7 +979,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "TIFF/TIF cached server-side support for HFS - converts TIFF to JPG on the fly for preview with Show and generates thumbnails",
     "version": 1.3,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "hugo529100/hfs-Stop-images-on-navigate": {
     "id": "hugo529100/hfs-Stop-images-on-navigate",
@@ -988,7 +988,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Massively speeds up browsing of image-heavy folders by suspending off-screen thumbnails (saving bandwidth, smoother scrolling) and cancelling remaining image loads when navigating folders",
     "version": 1.8,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "W-i-n-7/vmware-ctrl": {
     "id": "vmware-ctrl",
@@ -1027,13 +1027,13 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "updatedAt": 1795489170634
   },
   "hugo529100/hfs-Frontend-performance-optimizer": {
-    "id": "hugo529100/hfs-Frontend-performance-optimizer",
+    "id": "Frontend-performance-optimizer",
     "repo": "hugo529100/hfs-Frontend-performance-optimizer",
     "author": "hugo529100",
     "description": "Dynamic performance optimizer that activates when viewing videos or images. This feature overlaps with Videos-player and Image-browser; if you already use these two plugins, Frontend-performance-optimizer is not required.",
     "version": 1.8,
-    "source": "catalog",
-    "updatedAt": 1795506935109
+    "source": "plugin",
+    "updatedAt": 1795507420883
   },
   "hugo529100/hfs-QuickPages": {
     "id": "hugo529100/hfs-QuickPages",
@@ -1042,16 +1042,16 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "A quick-access panel for HFS that lets users switch between multiple web pages via custom tabs.",
     "version": 2.6,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "Plugins-Optimizer": {
     "id": "Plugins-Optimizer",
     "repo": "hugo529100/hfs-Plugins-Optimizer",
     "author": "hugo529100",
     "description": "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree.",
-    "version": 40.9,
+    "version": 41,
     "source": "plugin",
-    "updatedAt": 1795506547992
+    "updatedAt": 1795508014827
   },
   "Hug3O/Plugins-Optimizer": {
     "id": "Plugins-Optimizer",
@@ -1087,7 +1087,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Complete media cover/thumbnail extraction and display system - supports video GIF/JPG thumbnails and audio cover extraction",
     "version": 8.1,
     "source": "plugin",
-    "updatedAt": 1795499173350
+    "updatedAt": 1795508015095
   },
   "Hug3O/MVfiles-covers": {
     "id": "MVfiles-covers",
@@ -1105,7 +1105,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Fade in effect for thumbnails",
     "version": 1.6,
     "source": "plugin",
-    "updatedAt": 1795499173338
+    "updatedAt": 1795508015100
   },
   "Hug3O/thumbnail-fade": {
     "id": "thumbnail-fade",
@@ -1123,7 +1123,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "High-efficiency Picasa-style image browser with thumbnail strip, progressive preview, and smart deferred loading.",
     "version": 6.8,
     "source": "plugin",
-    "updatedAt": 1795499173343
+    "updatedAt": 1795508015097
   },
   "Hug3O/Image-browser": {
     "id": "Image-browser",
@@ -1141,7 +1141,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "A lightweight, convenient note-taking tool built into HFS with multi-tab support, real-time sync, auto-backup, pagination, TXT export, progressive loading, GIF video thumbnails, and unified temp file management.",
     "version": 5.6,
     "source": "plugin",
-    "updatedAt": 1795499173381
+    "updatedAt": 1795508015144
   },
   "Hug3O/Notes": {
     "id": "Notes",
@@ -1159,7 +1159,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Music Broadcast System - Stream music from local folder",
     "version": 2.2,
     "source": "plugin",
-    "updatedAt": 1795499174527
+    "updatedAt": 1795508016297
   },
   "Hug3O/MusicBroadcast": {
     "id": "MusicBroadcast",
@@ -1384,7 +1384,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Improves sorted views by showing time or extension instead of size; also remembers tile size per folder (tile mode memory merged from Hotkey; formerly Short-plus)",
     "version": 2.2,
     "source": "catalog",
-    "updatedAt": 1795506935109
+    "updatedAt": 1795508014795
   },
   "Config-clean": {
     "id": "Config-clean",
@@ -1427,18 +1427,18 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "repo": "hugo529100/hfs-Plugins-Repair",
     "author": "hugo529100",
     "description": "",
-    "version": 2.21,
+    "version": 2.23,
     "source": "plugin",
-    "updatedAt": 1795507033971
+    "updatedAt": 1795508150095
   },
   "hugo529100/hfs-Plugins-Repair": {
     "id": "Plugins-Repair",
     "repo": "hugo529100/hfs-Plugins-Repair",
     "author": "hugo529100",
     "description": "",
-    "version": 2.21,
+    "version": 2.23,
     "source": "plugin",
-    "updatedAt": 1795507033971
+    "updatedAt": 1795508150095
   },
   "hfs-chat-plus-main": {
     "id": "hfs-chat-plus-main",
@@ -2369,12 +2369,12 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
   },
   "Frontend-performance-optimizer": {
     "id": "Frontend-performance-optimizer",
-    "repo": "Hug3O/Frontend-performance-optimizer",
-    "author": "Hug3O",
+    "repo": "hugo529100/hfs-Frontend-performance-optimizer",
+    "author": "hugo529100",
     "description": "Dynamic performance optimizer that activates when viewing videos or images. This feature overlaps with Videos-player and Image-browser; if you already use these two plugins, Frontend-performance-optimizer is not required.",
     "version": 1.8,
     "source": "plugin",
-    "updatedAt": 1795365880175
+    "updatedAt": 1795507420883
   },
   "Hug3O/Frontend-performance-optimizer": {
     "id": "Frontend-performance-optimizer",
@@ -2851,7 +2851,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Music Broadcast System - Stream music from local folder",
     "version": 2.2,
     "source": "plugin",
-    "updatedAt": 1795499174527
+    "updatedAt": 1795508016297
   },
   "hfs-other-plugins/better-thumbnails": {
     "id": "better-thumbnails",
