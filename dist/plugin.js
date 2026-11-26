@@ -8,7 +8,7 @@
 // The proxy is deliberately scoped: only hostnames in `githubHosts` are tunneled.
 // Everything else keeps using the normal network path.
 
-exports.version = 41.0
+exports.version = 41.1
 exports.apiRequired = [12.7, 13.73]
 exports.description = "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree."
 exports.repo = "hugo529100/hfs-Plugins-Optimizer"
@@ -1554,6 +1554,12 @@ exports.init = async api => {
             if (mm) field.min = Number(mm[1])
             const xm = /(?:^|[,{\s])max\s*:\s*(-?\d+(?:\.\d+)?)/.exec(body)
             if (xm) field.max = Number(xm[1])
+            const fileMask = configStringProp(body, 'fileMask')
+            if (fileMask !== undefined) field.fileMask = fileMask
+            for (const key of ['files', 'folders']) {
+                const bm = new RegExp('(?:^|[,{\\s])' + key + '\\s*:\\s*(true|false)').exec(body)
+                if (bm) field[key] = bm[1] === 'true'
+            }
             const om = /(?:^|[,{\s])options\s*:\s*\{/.exec(body)
             if (om) {
                 const ob = scanBalanced(body, om.index + om[0].length - 1)

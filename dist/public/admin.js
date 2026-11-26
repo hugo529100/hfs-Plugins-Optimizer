@@ -1411,7 +1411,8 @@
 
     const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-    async function openNativeOptions() {
+    async function openNativeOptions(targetId = PLUGIN_ID) {
+        if (state.skillActive) deactivateSkillTab()
         deactivateTab()
         location.hash = '#/plugins/installed'
         await sleep(500)
@@ -1436,15 +1437,16 @@
         }
         if (input) {
             const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-            if (setter) setter.call(input, PLUGIN_ID)
-            else input.value = PLUGIN_ID
+            if (setter) setter.call(input, targetId)
+            else input.value = targetId
             input.dispatchEvent(new Event('input', { bubbles: true }))
             await sleep(900)
         }
 
-        const row = document.querySelector('.MuiDataGrid-row[data-id="' + PLUGIN_ID + '"]')
+        const row = [...document.querySelectorAll('.MuiDataGrid-row')]
+            .find(r => r.dataset.id === targetId || r.getAttribute('data-id') === targetId)
         if (!row) {
-            toast('Plugins-Optimizer row not found', 'error')
+            toast(pluginDisplayName(targetId) + ' row not found', 'error')
             if (input) {
                 const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
                 if (setter) setter.call(input, '')
@@ -1470,6 +1472,19 @@
                 input.dispatchEvent(new Event('input', { bubbles: true }))
             }, 1200)
         }
+    }
+
+    async function promptPluginNativeAdmin(id) {
+        if (!state.installed.get(id)) {
+            toast(pluginDisplayName(id) + ' is not installed', 'error', 6000)
+            return
+        }
+        const ok = await uiConfirm(
+            'Open the native admin interface for ' + pluginDisplayName(id) + '?',
+            'Open'
+        )
+        if (!ok) return
+        await openNativeOptions(state.installed.get(id)?.id || id)
     }
 
     // ============================================================
@@ -3885,6 +3900,219 @@
         return identity
     }
 
+    function dateTimeLocalValue(value) {
+        if (!value) return ''
+        const d = new Date(value)
+        if (!Number.isFinite(d.getTime())) return ''
+        const pad = n => String(n).padStart(2, '0')
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    }
+
+    function pathMaskMatches(name, mask) {
+        if (!mask) return true
+        return String(mask).split(/[,;]/).some(part => {
+            const pattern = part.trim()
+            if (!pattern) return false
+            const rx = new RegExp('^' + pattern
+                .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+                .replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i')
+            return rx.test(name)
+        })
+    }
+
+    function joinServerPath(base, name) {
+        const b = String(base || '')
+        const sep = /^[A-Za-z]:/.test(b) || b.includes('\\') ? '\\' : '/'
+        return b.replace(/[\\/]+$/, '') + sep + String(name || '').replace(/^[\\/]+/, '')
+    }
+
+    function joinVfsPath(base, name) {
+        return '/' + [String(base || ''), String(name || '')]
+            .join('/').split('/').filter(Boolean).join('/')
+    }
+
+    function pickServerPath({ type, value, files, folders, fileMask, title }) {
+        const isVfs = type === 'vfs_path'
+        const allowFiles = files !== false
+        const allowFolders = folders === true || (isVfs && folders !== false)
+        return new Promise(resolve => {
+            const mount = document.fullscreenElement || document.body
+            const overlay = document.createElement('div')
+            overlay.className = 'opt-path-overlay'
+            const box = document.createElement('div')
+            box.className = 'opt-path-box'
+            const head = document.createElement('div')
+            head.className = 'opt-path-head'
+            const heading = document.createElement('strong')
+            heading.textContent = title || (allowFiles ? 'Pick a file' : 'Pick a folder')
+            const closeBtn = document.createElement('button')
+            closeBtn.type = 'button'
+            closeBtn.textContent = '×'
+            closeBtn.title = 'Close'
+            head.append(heading, closeBtn)
+            const pathInput = document.createElement('input')
+            pathInput.type = 'text'
+            pathInput.className = 'opt-path-input'
+            pathInput.placeholder = isVfs ? 'Virtual path' : 'Server path'
+            const list = document.createElement('div')
+            list.className = 'opt-path-list'
+            const status = document.createElement('div')
+            status.className = 'opt-path-status'
+            const footer = document.createElement('div')
+            footer.className = 'opt-path-footer'
+            const up = document.createElement('button')
+            up.type = 'button'
+            up.className = 'opt-btn'
+            up.textContent = 'Parent'
+            const folderBtn = document.createElement('button')
+            folderBtn.type = 'button'
+            folderBtn.className = 'opt-btn'
+            folderBtn.textContent = 'Select this folder'
+            folderBtn.hidden = !allowFolders
+            const cancel = document.createElement('button')
+            cancel.type = 'button'
+            cancel.className = 'opt-btn'
+            cancel.textContent = 'Cancel'
+            const pick = document.createElement('button')
+            pick.type = 'button'
+            pick.className = 'opt-btn opt-primary'
+            pick.textContent = 'Select'
+            footer.append(up, folderBtn, cancel, pick)
+            box.append(head, pathInput, status, list, footer)
+            overlay.appendChild(box)
+            mount.appendChild(overlay)
+
+            let current = ''
+            let selected = String(value || '')
+            let loadToken = 0
+            let done = false
+
+            const finish = result => {
+                if (done) return
+                done = true
+                document.removeEventListener('keydown', onKey)
+                overlay.remove()
+                resolve(result)
+            }
+            const onKey = ev => { if (ev.key === 'Escape') finish(null) }
+            document.addEventListener('keydown', onKey)
+            overlay.addEventListener('click', ev => { if (ev.target === overlay) finish(null) })
+            closeBtn.addEventListener('click', () => finish(null))
+            cancel.addEventListener('click', () => finish(null))
+            pick.addEventListener('click', () => {
+                if (selected) finish(selected)
+                else if (allowFolders && current) finish(current)
+            })
+            folderBtn.addEventListener('click', () => { if (current) finish(current) })
+            pathInput.addEventListener('keydown', ev => {
+                if (ev.key === 'Enter') { ev.preventDefault(); load(pathInput.value.trim()) }
+            })
+            up.addEventListener('click', () => {
+                if (isVfs) {
+                    const parent = current.split('/').filter(Boolean).slice(0, -1).join('/')
+                    load('/' + parent)
+                } else {
+                    const trimmed = current.replace(/[\\/]+$/, '')
+                    const cut = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/'))
+                    if (cut > 0) load(trimmed.slice(0, cut))
+                }
+            })
+
+            function render(entries, isDir, pathFor) {
+                list.textContent = ''
+                const dirs = []
+                const fs = []
+                for (const entry of entries || []) {
+                    const name = String(entry.n || entry.name || '').replace(/[/\\]+$/, '')
+                    if (!name || name === '.' || name === '..') continue
+                    if (isDir(entry)) dirs.push({ entry, name })
+                    else if (allowFiles && pathMaskMatches(name, fileMask)) fs.push({ entry, name })
+                }
+                const sortName = x => x.name.toLowerCase()
+                dirs.sort((a, b) => sortName(a) < sortName(b) ? -1 : 1)
+                fs.sort((a, b) => sortName(a) < sortName(b) ? -1 : 1)
+                for (const item of [...dirs, ...fs]) {
+                    const dir = dirs.includes(item)
+                    const full = pathFor(item.name)
+                    const row = document.createElement('button')
+                    row.type = 'button'
+                    row.className = 'opt-path-entry' + (dir ? ' folder' : ' file') + (selected === full ? ' selected' : '')
+                    row.dataset.path = full
+                    const icon = document.createElement('span')
+                    icon.className = 'opt-path-icon'
+                    icon.textContent = dir ? '📁' : '📄'
+                    const label = document.createElement('span')
+                    label.className = 'opt-path-name'
+                    label.textContent = item.name
+                    row.append(icon, label)
+                    row.addEventListener('click', () => {
+                        if (dir) {
+                            load(full)
+                            return
+                        }
+                        selected = full
+                        for (const el of list.querySelectorAll('.opt-path-entry.selected')) el.classList.remove('selected')
+                        row.classList.add('selected')
+                        pick.disabled = false
+                    })
+                    list.appendChild(row)
+                }
+                status.textContent = dirs.length + fs.length
+                    ? dirs.length + ' folders, ' + fs.length + ' files'
+                    : 'No entries in this folder'
+            }
+
+            async function load(path) {
+                const token = ++loadToken
+                status.textContent = 'Loading…'
+                list.textContent = ''
+                try {
+                    if (isVfs) {
+                        const uri = '/' + String(path || '').split('/').filter(Boolean).join('/')
+                        const data = await apiCall('get_file_list', {
+                            uri, admin: true, onlyFolders: !allowFiles, fileMask: fileMask || undefined,
+                        })
+                        if (token !== loadToken) return
+                        current = uri
+                        pathInput.value = uri
+                        render(data?.list || [],
+                            entry => String(entry.n || '').endsWith('/') || entry.p === 'd',
+                            name => joinVfsPath(uri, name))
+                    } else {
+                        const resolved = await apiCall('resolve_path', { path, closestFolder: true })
+                        if (token !== loadToken) return
+                        current = resolved?.path || path
+                        pathInput.value = current
+                        const data = await apiCall('get_ls', { path: current })
+                        if (token !== loadToken) return
+                        render(data?.list || [], entry => entry.k === 'd',
+                            name => joinServerPath(current, name))
+                    }
+                } catch (e) {
+                    if (token !== loadToken) return
+                    status.textContent = 'Cannot open folder: ' + (e.message || 'unknown error')
+                }
+            }
+
+            pick.disabled = !selected
+            if (isVfs) {
+                const clean = '/' + String(value || '').split('/').filter(Boolean).join('/')
+                const last = clean.split('/').pop() || ''
+                const looksFile = /\.[a-z0-9]{1,8}$/i.test(last)
+                current = value && !looksFile ? clean : '/' + clean.split('/').filter(Boolean).slice(0, -1).join('/')
+                if (!current) current = '/'
+                load(current)
+            } else if (value) {
+                selected = value
+                load(value)
+            } else {
+                apiCall('get_cwd').then(r => load(r?.path || '')).catch(e => {
+                    status.textContent = 'Cannot read working directory: ' + (e.message || 'unknown error')
+                })
+            }
+        })
+    }
+
     async function openTreeSettings(id) {
         if (state.settingsPanels.has(id)) return
         const node = inlineNode(id)
@@ -4258,7 +4486,11 @@
         const name = document.createElement('span')
         name.className = 'skill-name'
         name.textContent = pluginDisplayName(item.id)
-        name.title = 'Right-click to change border colour; long press to reset'
+        name.title = 'Open native plugin admin; right-click changes border colour; long press resets it'
+        name.addEventListener('click', ev => {
+            ev.stopPropagation()
+            promptPluginNativeAdmin(item.id)
+        })
         name.addEventListener('contextmenu', ev => {
             ev.preventDefault()
             ev.stopPropagation()
@@ -6206,6 +6438,7 @@
             span.textContent = f.label || key
             label.appendChild(span)
             let input
+            let appended = false
             if (f.type === 'boolean') {
                 const toggle = document.createElement('span')
                 toggle.className = 'skill-switch'
@@ -6214,6 +6447,7 @@
                 input.checked = values[key] ?? !!f.defaultValue
                 toggle.append(input)
                 label.appendChild(toggle)
+                appended = true
             } else if (f.type === 'number') {
                 input = document.createElement('input')
                 input.type = 'number'
@@ -6221,6 +6455,7 @@
                 if (f.max != null) input.max = f.max
                 input.value = values[key] ?? f.defaultValue ?? ''
                 label.appendChild(input)
+                appended = true
             } else if (f.type === 'select' && f.options) {
                 input = document.createElement('select')
                 for (const opt of configOptions(f)) {
@@ -6231,19 +6466,59 @@
                 }
                 input.value = String(values[key] ?? f.defaultValue ?? '')
                 label.appendChild(input)
+                appended = true
+            } else if (f.type === 'date_time') {
+                input = document.createElement('input')
+                input.type = 'datetime-local'
+                input.step = '60'
+                input.dataset.dateTime = '1'
+                input.value = dateTimeLocalValue(values[key] ?? f.defaultValue)
+                input.addEventListener('click', () => { try { input.showPicker?.() } catch {} })
+                label.appendChild(input)
+                appended = true
+            } else if (f.type === 'vfs_path' || f.type === 'real_path') {
+                input = document.createElement('input')
+                input.type = 'text'
+                input.placeholder = f.type === 'vfs_path' ? 'Virtual server path' : 'Server file path'
+                input.value = values[key] ?? f.defaultValue ?? ''
+                const row = document.createElement('div')
+                row.className = 'skill-path-row'
+                const browse = document.createElement('button')
+                browse.type = 'button'
+                browse.className = 'opt-btn skill-path-browse'
+                browse.textContent = 'Browse…'
+                browse.addEventListener('click', ev => {
+                    ev.stopPropagation()
+                    pickServerPath({
+                        type: f.type,
+                        value: input.value,
+                        files: f.files !== false,
+                        folders: f.folders === true,
+                        fileMask: f.fileMask,
+                        title: f.label || key,
+                    }).then(path => {
+                        if (path == null) return
+                        input.value = path
+                        input.dispatchEvent(new Event('input', { bubbles: true }))
+                    }).catch(e => toast('Path picker failed: ' + e.message, 'error', 7000))
+                })
+                row.append(input, browse)
+                label.appendChild(row)
+                appended = true
             } else if (f.multiline || f.inputProps?.rows) {
                 input = document.createElement('textarea')
                 input.rows = Number(f.inputProps?.rows) || 3
                 input.value = values[key] ?? f.defaultValue ?? ''
                 label.appendChild(input)
+                appended = true
             } else {
                 input = document.createElement('input')
                 input.type = f.type === 'password' ? 'password' : 'text'
-                if (f.type === 'vfs_path' || f.type === 'real_path')
-                    input.placeholder = 'Server path'
                 input.value = values[key] ?? f.defaultValue ?? ''
                 label.appendChild(input)
+                appended = true
             }
+            if (!appended) label.appendChild(input)
             input.dataset.key = key
             block.appendChild(label)
             if (f.helperText) {
@@ -6258,14 +6533,15 @@
         empty.className = 'skill-settings-empty'
         empty.textContent = 'No quick settings'
         body.appendChild(empty)
+        const readInputValue = input => input.type === 'checkbox'
+            ? input.checked
+            : input.tagName === 'SELECT' ? input.value
+            : input.type === 'number' ? (input.value === '' ? undefined : Number(input.value))
+            : input.dataset.dateTime === '1' ? (input.value ? new Date(input.value).toISOString() : null)
+            : input.value
         const valuesFromInputs = () => {
-            for (const input of body.querySelectorAll('[data-key]')) {
-                values[input.dataset.key] = input.type === 'checkbox'
-                    ? input.checked
-                    : input.tagName === 'SELECT' ? input.value
-                    : input.type === 'number' ? (input.value === '' ? undefined : Number(input.value))
-                    : input.value
-            }
+            for (const input of body.querySelectorAll('[data-key]'))
+                values[input.dataset.key] = readInputValue(input)
             return values
         }
         const updateVisibility = () => {
@@ -6297,12 +6573,8 @@
             for (const [key, field] of Object.entries(fields)) {
                 if (field?.type === 'array') config[key] = Array.isArray(values[key]) ? values[key] : []
             }
-            for (const input of body.querySelectorAll('[data-key]')) {
-                const key = input.dataset.key
-                config[key] = input.type === 'checkbox' ? input.checked
-                    : input.type === 'number' ? Number(input.value)
-                    : input.value
-            }
+            for (const input of body.querySelectorAll('[data-key]'))
+                config[input.dataset.key] = readInputValue(input)
             return config
         }
         const initial = JSON.stringify(readConfig())
@@ -6853,6 +7125,25 @@
             .skill-array-nested > summary { cursor: pointer; font-size: .68rem; color: var(--active-comment-contrast, #aaa); }
             .skill-field-block.field-sep { padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid rgba(127,127,127,.16); }
             .skill-field-help { margin: 2px 0 0; font-size: .68rem; line-height: 1.32; color: var(--active-comment-contrast, #aaa) !important; opacity: .9; }
+            .skill-field input[type="datetime-local"] { width: 176px; padding: 3px 5px; font: inherit; font-size: .74rem; color: var(--active-text, #f0f0f0) !important; background-color: var(--active-button-bg, #2a2a2a) !important; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.5)); border-radius: 3px; color-scheme: dark; }
+            .skill-path-row { display: flex; align-items: center; gap: 4px; width: 220px; min-width: 0; }
+            .skill-path-row input[type="text"] { flex: 1 1 auto; width: auto !important; min-width: 0; }
+            .skill-path-browse { flex: 0 0 auto; padding: 2px 6px !important; font-size: .68rem !important; line-height: 1.2 !important; }
+            .opt-path-overlay { position: fixed; inset: 0; z-index: 100002; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.5); padding: 16px; box-sizing: border-box; }
+            .opt-path-box { display: flex; flex-direction: column; width: min(720px, 94vw); max-height: min(82vh, 720px); overflow: hidden; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.45)); border-radius: 8px; background: var(--active-bg, #1e1e1e); color: var(--active-text, #eee); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+            .opt-path-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--active-grid-contrast, rgba(127,127,127,.3)); }
+            .opt-path-head strong { flex: 1 1 auto; font-size: .84rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .opt-path-head button { width: 24px; height: 24px; border: 0; border-radius: 4px; background: transparent; color: var(--active-comment-contrast, #aaa); font-size: 18px; line-height: 1; cursor: pointer; }
+            .opt-path-input { margin: 8px 10px 0; padding: 5px 7px; font: inherit; font-size: .78rem; color: var(--active-text, #eee) !important; background: var(--active-button-bg, #2a2a2a) !important; border: 1px solid var(--active-grid-contrast, rgba(127,127,127,.5)); border-radius: 4px; }
+            .opt-path-status { min-height: 18px; padding: 4px 10px; font-size: .68rem; color: var(--active-comment-contrast, #aaa); }
+            .opt-path-list { flex: 1 1 auto; min-height: 120px; overflow: auto; padding: 0 6px 6px; }
+            .opt-path-entry { display: flex; align-items: center; gap: 7px; width: 100%; padding: 5px 7px; border: 0; border-radius: 4px; background: transparent; color: var(--active-text, #eee) !important; font: inherit; font-size: .78rem; text-align: left; cursor: pointer; }
+            .opt-path-entry:hover { background: var(--active-mild-contrast, rgba(127,127,127,.16)); }
+            .opt-path-entry.selected { background: color-mix(in srgb, var(--active-focus-color, #ff9800) 22%, transparent); color: var(--active-text-high-contrast, #fff) !important; }
+            .opt-path-icon { flex: 0 0 auto; width: 16px; text-align: center; }
+            .opt-path-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .opt-path-footer { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--active-grid-contrast, rgba(127,127,127,.3)); }
+            .opt-path-footer .opt-btn:first-child { margin-right: auto; }
             .skill-settings-tab-block { margin: 4px 0 6px; min-width: 0; }
             .skill-settings-tabs { display: flex; align-items: flex-end; gap: 3px 2px; flex: 1; min-width: 0; flex-wrap: wrap; overflow: visible; padding: 0 2px; border-bottom: 1px solid rgba(127,127,127,.4); }
             .skill-panel .skill-settings-tabs .skill-settings-tab { display: inline-flex; align-items: center; flex: 0 0 auto; min-height: 22px; padding: 2px 10px; border: 1px solid rgba(127,127,127,.38) !important; border-bottom: 0 !important; border-radius: .4em .4em 0 0 !important; background: transparent !important; box-shadow: none !important; appearance: none; color: var(--active-comment-contrast, #aaa) !important; font: inherit; font-size: .72rem; font-weight: normal; white-space: nowrap; cursor: pointer; }
@@ -7042,6 +7333,10 @@
             body.opt-tree-light .skill-array-nested { border-color: rgba(0,0,0,.14) !important; }
             body.opt-tree-light .skill-array-action { color: #555 !important; }
             body.opt-tree-light .skill-array-action:hover { background: var(--opt-hover) !important; color: #000 !important; }
+            body.opt-tree-light .opt-path-box { background: #fff !important; color: #222 !important; border-color: var(--opt-line) !important; }
+            body.opt-tree-light .opt-path-input { background: #fff !important; color: #222 !important; border-color: var(--opt-line) !important; }
+            body.opt-tree-light .opt-path-entry { color: #222 !important; }
+            body.opt-tree-light .skill-field input[type="datetime-local"] { background: #fff !important; color: #222 !important; border-color: var(--opt-line) !important; color-scheme: light; }
             body.opt-tree-light .skill-field-block.field-sep { border-bottom-color: rgba(0,0,0,.12) !important; }
             body.opt-tree-light .skill-settings-meta { border-bottom-color: rgba(0,0,0,.12) !important; }
             body.opt-tree-light .skill-switch::before { background: rgba(0,0,0,.22) !important; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12) !important; }
