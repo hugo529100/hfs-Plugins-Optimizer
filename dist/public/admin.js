@@ -473,23 +473,32 @@
             `
             document.head.appendChild(style)
         }
+        const anchors = [...list.querySelectorAll('a')]
+            .filter(a => !a.hasAttribute('data-optimizer-plugin-tree') && !a.hasAttribute('data-repair-sidebar'))
+        const plugins = anchors.find(a => {
+            const href = a.getAttribute('href') || ''
+            return href.includes('/plugins') && !/pluginTree|pluginsRepair/i.test(href)
+        }) || null
+        // Wait for the native Plugins entry: appending at the end of a partially
+        // rendered sidebar made the button start in the wrong position.
+        if (!plugins) return
+
         let btn = document.querySelector('[data-optimizer-plugin-tree]')
         if (btn && !list.contains(btn)) {
             btn.remove()
             btn = null
         }
         if (!btn) {
-            const plugins = [...list.querySelectorAll('a')].find(a => (a.getAttribute('href') || '').includes('/plugins'))
             btn = document.createElement('a')
             btn.href = pluginTreePageHref()
             btn.tabIndex = 0
             btn.dataset.optimizerPluginTree = '1'
             btn.setAttribute('aria-label', 'PluginTree')
-            btn.className = (plugins?.className || 'MuiButtonBase-root MuiListItemButton-root MuiListItemButton-gutters') + ' optimizer-sidebar-tree'
+            btn.className = (plugins.className || 'MuiButtonBase-root MuiListItemButton-root MuiListItemButton-gutters') + ' optimizer-sidebar-tree'
             btn.classList.remove('Mui-selected')
-            const iconClass = plugins?.querySelector('.MuiListItemIcon-root')?.className || 'MuiListItemIcon-root'
-            const textClass = plugins?.querySelector('.MuiListItemText-root')?.className || 'MuiListItemText-root'
-            const primaryClass = plugins?.querySelector('.MuiListItemText-primary')?.className || 'MuiTypography-root MuiTypography-body1 MuiListItemText-primary'
+            const iconClass = plugins.querySelector('.MuiListItemIcon-root')?.className || 'MuiListItemIcon-root'
+            const textClass = plugins.querySelector('.MuiListItemText-root')?.className || 'MuiListItemText-root'
+            const primaryClass = plugins.querySelector('.MuiListItemText-primary')?.className || 'MuiTypography-root MuiTypography-body1 MuiListItemText-primary'
             btn.innerHTML = `<div class="${iconClass}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 4h7v4H3V4zm0 6h7v4H3v-4zm0 6h7v4H3v-4zm9-12h9v2h-9V4zm0 6h9v2h-9v-2zm0 6h9v2h-9v-2z"/></svg></div><div class="${textClass}"><span class="${primaryClass}">PluginTree</span></div>`
             btn.addEventListener('click', ev => {
                 ev.preventDefault()
@@ -505,11 +514,12 @@
                 state.sidebarPending = false
                 navigateToPluginTreePage()
             })
-            if (plugins) plugins.insertAdjacentElement('beforebegin', btn)
-            else list.appendChild(btn)
+            plugins.insertAdjacentElement('beforebegin', btn)
         }
+        // Keep it immediately before Plugins even after React reorders the list.
+        if (btn.nextElementSibling !== plugins) plugins.insertAdjacentElement('beforebegin', btn)
         state.sidebarTree = btn
-        state.sidebarPlugins = [...list.querySelectorAll('a')].find(a => !a.hasAttribute('data-optimizer-plugin-tree') && (a.getAttribute('href') || '').includes('/plugins')) || null
+        state.sidebarPlugins = anchors.find(a => (a.getAttribute('href') || '').includes('/plugins')) || null
         if (state.sidebarPlugins && !state.sidebarPlugins.dataset.optimizerPluginsBound) {
             state.sidebarPlugins.dataset.optimizerPluginsBound = '1'
             state.sidebarPlugins.addEventListener('click', () => {
@@ -7360,6 +7370,34 @@
     //  Bootstrap
     // ============================================================
     let scheduled = false
+    let sidebarScheduled = false
+    let tabsScheduled = false
+    function scheduleTabs() {
+        if (tabsScheduled) return
+        tabsScheduled = true
+        // Insert the OPTIMIZER / PLUGIN TREE tabs in the same microtask batch as
+        // the native tab-strip render (rAF made them pop in a frame later).
+        queueMicrotask(() => {
+            tabsScheduled = false
+            try {
+                const list = findTablist()
+                if (!list) return
+                ensureTab(list)
+                ensureSkillTab(list)
+            } catch (e) { debugError('tabs', e) }
+        })
+    }
+    function scheduleSidebar() {
+        if (sidebarScheduled) return
+        sidebarScheduled = true
+        // Sidebar insertion must land in the same microtask batch as the React
+        // commit that renders the native list, otherwise the one-frame delay is
+        // visible as a flash.
+        queueMicrotask(() => {
+            sidebarScheduled = false
+            try { ensureSidebarButton() } catch (e) { debugError('sidebar', e) }
+        })
+    }
     function schedule() {
         if (scheduled) return
         scheduled = true
@@ -7507,7 +7545,11 @@
         ensureUi()
         refreshStatus().catch(() => {})
         try {
-            new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true })
+            new MutationObserver(() => {
+                scheduleSidebar()
+                scheduleTabs()
+                schedule()
+            }).observe(document.body, { childList: true, subtree: true })
         } catch {}
         window.addEventListener('popstate', () => {
             if (isPluginTreePage()) {
