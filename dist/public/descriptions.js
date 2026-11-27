@@ -106,7 +106,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Allows you to turn on other computers in your network remotely using HFS on your home-server",
     "version": 1.22,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "rejetto/reverse-proxy": {
     "id": "reverse-proxy",
@@ -142,7 +142,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "To modifying the HFS3 interface to make it more suitable for daily management and browsing of images and videos.",
     "version": 6.9,
     "source": "plugin",
-    "updatedAt": 1795611595281
+    "updatedAt": 1795742265057
   },
   "rejetto/hfs-show-md": {
     "id": "show-md",
@@ -214,16 +214,16 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Frontend UI customization plugin - Hide/show buttons, reorder menu bar, add refresh, fullscreen controls, tile size toggle, and collapse toggle.",
     "version": 3.2,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "hugo529100/hfs-Image-browser": {
     "id": "Image-browser",
     "repo": "hugo529100/hfs-Image-browser",
     "author": "hugo529100",
     "description": "High-efficiency Picasa-style image browser with thumbnail strip, progressive preview, and smart deferred loading.",
-    "version": 7.7,
+    "version": 8,
     "source": "plugin",
-    "updatedAt": 1795706315009
+    "updatedAt": 1795752786572
   },
   "rejetto/hfs-subtitles": {
     "id": "subtitles",
@@ -313,7 +313,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Extract Windows icons for files and folders using native Windows icon resources.",
     "version": 2,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "rejetto/hfs-opds": {
     "id": "opds",
@@ -358,7 +358,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Replaces the browser's context menu with the HFS file menu, based on VenB304 and fix. Added support for Chinese and special characters. In mobile mode, long press to bring up the menu.",
     "version": 1.6,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "kran27/code-preview": {
     "id": "code-preview",
@@ -376,7 +376,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Hide specified files and folders from the file list. Supports wildcard patterns for flexible matching.",
     "version": 1,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "buildnbrk/hfs-extension-icons": {
     "id": "extension-icons",
@@ -394,7 +394,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Auto backup descript.ion files",
     "version": 1.1,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "VenB304/hfs-select-icon": {
     "id": "select-icon",
@@ -433,13 +433,13 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "updatedAt": 1795402128703
   },
   "hugo529100/hfs-Orange-8bit-filter": {
-    "id": "hugo529100/hfs-Orange-8bit-filter",
+    "id": "Orange-8bit-filter",
     "repo": "hugo529100/hfs-Orange-8bit-filter",
     "author": "hugo529100",
     "description": "Apply retro filters with various effects to all frontend images",
     "version": 1.9,
-    "source": "catalog",
-    "updatedAt": 1795738808338
+    "source": "plugin",
+    "updatedAt": 1795742216962
   },
   "hugo529100/hfs-Ai-chat": {
     "id": "Ai-chat",
@@ -457,7 +457,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "BMP cached server-side support for HFS - converts BMP to JPG on the fly for preview with Show and generates thumbnails",
     "version": 1.3,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "buildnbrk/hfs-retro-emulator": {
     "id": "buildnbrk/hfs-retro-emulator",
@@ -466,7 +466,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Runs compatible ROM files from your HFS shares in an in-browser emulator (EmulatorJS) for supported retro systems. No ROMs or BIOS files are included.",
     "version": 1,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "buildnbrk/hfs-group-ptt": {
     "id": "group-ptt",
@@ -511,7 +511,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Silence known harmless console errors by keyword",
     "version": 2.2,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "rejetto/hfs-click-icon-to-show": {
     "id": "click-icon-to-show",
@@ -547,7 +547,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Customize file icons",
     "version": 3.34,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "hugo529100/hfs-Page-scale-custom": {
     "id": "hugo529100/hfs-Page-scale-custom",
@@ -556,7 +556,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Accessibility helper that lets users customize max-width, zoom scale, and fonts for better readability.",
     "version": 2,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "hugo529100/hfs-Disk-monitor": {
     "id": "Disk-monitor",
@@ -583,7 +583,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Copy files",
     "version": null,
     "source": "plugin",
-    "updatedAt": 1795401204396
+    "updatedAt": 1795745564769
   },
   "hugo529100/hfs-Disk-info-plugin": {
     "id": "Disk-info-plugin",
@@ -601,7 +601,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Launch executable files on the server directly from HTTP File Server version 3 (HFS 3) web interface.",
     "version": null,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "hugo529100/hfs-Fixed-folder-order": {
     "id": "hugo529100/hfs-Fixed-folder-order",
@@ -610,7 +610,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Folders first + DESCRIPT.ION comment tag ordering",
     "version": 2.3,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "hugo529100/hfs-Banner-footer-plugin": {
     "id": "hugo529100/hfs-Banner-footer-plugin",
@@ -619,7 +619,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Displays a customizable banner and footer, with optional network-based GIF filtering.",
     "version": 2.8,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "hugo529100/hfs-Visited-filename": {
     "id": "hugo529100/hfs-Visited-filename",
@@ -628,7 +628,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Visited file indicator, episode tag and new file marker",
     "version": 1.8,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "rejetto/download-manager": {
     "id": "download-manager",
@@ -673,7 +673,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Auto-assign icons for video, audio, image, and script/text files based on their extensions, with customizable extension lists.",
     "version": 1.1,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "rejetto/hfs-mdns": {
     "id": "rejetto/hfs-mdns",
@@ -682,7 +682,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Bonjour/mDNS discovery for HTTP and WebDAV clients",
     "version": 1,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "rejetto/windows-url-files": {
     "id": "windows-url-files",
@@ -727,7 +727,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Text editor with fullscreen dialog, saved versions, unified timeline, VSCode theme. Metadata lives next to the file in cache/docviewer/, keyed by filename (no hashes).",
     "version": 7.4,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "hugo529100/hfs-Psd-support": {
     "id": "hugo529100/hfs-Psd-support",
@@ -736,7 +736,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "PSD cached server-side support for HFS - converts PSD composite image to JPG on the fly for preview with Show and generates thumbnails",
     "version": 1.1,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "hugo529100/hfs-Prevent-dialog-close": {
     "id": "Prevent-dialog-close",
@@ -817,25 +817,25 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "hfs-monitor-agent is a plugin developed for HTTP File Server version 3 (HFS 3). It is designed to work with HFS-Monitor, a Windows application for real-time monitoring.",
     "version": null,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "hugo529100/hfs-MVfiles-covers": {
     "id": "MVfiles-covers",
     "repo": "hugo529100/hfs-MVfiles-covers",
     "author": "hugo529100",
     "description": "Complete media cover/thumbnail extraction and display system - supports video GIF/JPG thumbnails and audio cover extraction",
-    "version": 8.9,
+    "version": 9,
     "source": "plugin",
-    "updatedAt": 1795701752384
+    "updatedAt": 1795752844451
   },
   "hugo529100/hfs-Menu-Reorder": {
-    "id": "hugo529100/hfs-Menu-Reorder",
+    "id": "Menu-Reorder",
     "repo": "hugo529100/hfs-Menu-Reorder",
     "author": "hugo529100",
     "description": "Reorder file/folder menu and add visual separators",
-    "version": 1.2,
-    "source": "catalog",
-    "updatedAt": 1795738808338
+    "version": 1.5,
+    "source": "plugin",
+    "updatedAt": 1795749229505
   },
   "hugo529100/hfs-AdminThemeCustomizer": {
     "id": "AdminThemeCustomizer",
@@ -853,7 +853,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Navigation Optimizer: Scroll position memory + Gesture navigation for HFS",
     "version": 2.3,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "hugo529100/hfs-Plugins-Optimizer": {
     "id": "Plugins-Optimizer",
@@ -862,7 +862,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree.",
     "version": 41.2,
     "source": "plugin",
-    "updatedAt": 1795738808801
+    "updatedAt": 1795753082661
   },
   "hugo529100/hfs-Disable-actions": {
     "id": "hugo529100/hfs-Disable-actions",
@@ -871,7 +871,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Restrict UI for guests: lock actions until login, optionally hide scrollbar",
     "version": 1.6,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "hugo529100/hfs-Dashboard": {
     "id": "Dashboard",
@@ -895,10 +895,10 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "id": "Hotkey",
     "repo": "hugo529100/hfs-Hotkey",
     "author": "hugo529100",
-    "description": "Unified keyboard helper for HFS (Enter/Esc, comment Enter saves without closing preview, file-show shortcuts, smooth arrow scrolling, paging navigation incl. PageUp/PageDown/Home/End, and Ctrl+0..9 tile size). Tile-size memory (per folder, expiry, server default) is provided by the Tiles-plus plugin.",
-    "version": 2.5,
+    "description": "Unified keyboard helper for HFS: dialog keys (Enter/Esc), file-show shortcuts, smooth arrow scrolling, paging navigation and Ctrl+0..9 tile size. Shortcuts pause while typing or during IME composition.",
+    "version": 2.8,
     "source": "plugin",
-    "updatedAt": 1795705993955
+    "updatedAt": 1795753029847
   },
   "hugo529100/hfs-Copy-link": {
     "id": "hugo529100/hfs-Copy-link",
@@ -907,7 +907,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Add 'Copy link' for files and 'Copy all links' for folders to right-click menu",
     "version": 1,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "feuerswut/hfs-ip-blocklist": {
     "id": "ip-blocklist",
@@ -952,7 +952,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Mouse hover and click sounds",
     "version": 1.6,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "rejetto/hfs-local-player": {
     "id": "local-player",
@@ -979,7 +979,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "TIFF/TIF cached server-side support for HFS - converts TIFF to JPG on the fly for preview with Show and generates thumbnails",
     "version": 1.3,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "hugo529100/hfs-Stop-images-on-navigate": {
     "id": "Stop-images-on-navigate",
@@ -1042,7 +1042,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "A quick-access panel for HFS that lets users switch between multiple web pages via custom tabs.",
     "version": 2.6,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "Plugins-Optimizer": {
     "id": "Plugins-Optimizer",
@@ -1051,7 +1051,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "GitHub-only VPN proxy + persistent cache for plugin/HFS updates, a portable plugin catalog mirror, admin-panel Installed enhancements, and a draggable visual Plugin Skill Tree.",
     "version": 41.2,
     "source": "plugin",
-    "updatedAt": 1795738808801
+    "updatedAt": 1795753082661
   },
   "Hug3O/Plugins-Optimizer": {
     "id": "Plugins-Optimizer",
@@ -1085,9 +1085,9 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "repo": "hugo529100/hfs-MVfiles-covers",
     "author": "hugo529100",
     "description": "Complete media cover/thumbnail extraction and display system - supports video GIF/JPG thumbnails and audio cover extraction",
-    "version": 8.9,
+    "version": 9,
     "source": "plugin",
-    "updatedAt": 1795701752384
+    "updatedAt": 1795752844451
   },
   "Hug3O/MVfiles-covers": {
     "id": "MVfiles-covers",
@@ -1121,9 +1121,9 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "repo": "hugo529100/hfs-Image-browser",
     "author": "hugo529100",
     "description": "High-efficiency Picasa-style image browser with thumbnail strip, progressive preview, and smart deferred loading.",
-    "version": 7.7,
+    "version": 8,
     "source": "plugin",
-    "updatedAt": 1795706315009
+    "updatedAt": 1795752786572
   },
   "Hug3O/Image-browser": {
     "id": "Image-browser",
@@ -1208,12 +1208,12 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
   },
   "Orange-8bit-filter": {
     "id": "Orange-8bit-filter",
-    "repo": "Hug3O/Orange-8bit-filter",
-    "author": "Hug3O",
+    "repo": "hugo529100/hfs-Orange-8bit-filter",
+    "author": "hugo529100",
     "description": "Apply retro filters with various effects to all frontend images",
     "version": 1.9,
     "source": "plugin",
-    "updatedAt": 1795365880216
+    "updatedAt": 1795742216962
   },
   "Hug3O/Orange-8bit-filter": {
     "id": "Orange-8bit-filter",
@@ -1255,10 +1255,10 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "id": "Hotkey",
     "repo": "hugo529100/hfs-Hotkey",
     "author": "hugo529100",
-    "description": "Unified keyboard helper for HFS (Enter/Esc, comment Enter saves without closing preview, file-show shortcuts, smooth arrow scrolling, paging navigation incl. PageUp/PageDown/Home/End, and Ctrl+0..9 tile size). Tile-size memory (per folder, expiry, server default) is provided by the Tiles-plus plugin.",
-    "version": 2.5,
+    "description": "Unified keyboard helper for HFS: dialog keys (Enter/Esc), file-show shortcuts, smooth arrow scrolling, paging navigation and Ctrl+0..9 tile size. Shortcuts pause while typing or during IME composition.",
+    "version": 2.8,
     "source": "plugin",
-    "updatedAt": 1795705993955
+    "updatedAt": 1795753029847
   },
   "Hug3O/Hotkey": {
     "id": "Hotkey",
@@ -1618,7 +1618,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Copy files",
     "version": null,
     "source": "plugin",
-    "updatedAt": 1795401204396
+    "updatedAt": 1795745564769
   },
   "cors": {
     "id": "cors",
@@ -1780,7 +1780,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "To modifying the HFS3 interface to make it more suitable for daily management and browsing of images and videos.",
     "version": 6.9,
     "source": "plugin",
-    "updatedAt": 1795611595281
+    "updatedAt": 1795742265057
   },
   "openid-connect": {
     "id": "openid-connect",
@@ -2441,12 +2441,12 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
   },
   "Menu-Reorder": {
     "id": "Menu-Reorder",
-    "repo": "Hug3O/Menu-Reorder",
-    "author": "Hug3O",
+    "repo": "hugo529100/hfs-Menu-Reorder",
+    "author": "hugo529100",
     "description": "Reorder file/folder menu and add visual separators",
-    "version": 1.2,
+    "version": 1.5,
     "source": "plugin",
-    "updatedAt": 1795365880205
+    "updatedAt": 1795749229505
   },
   "Hug3O/Menu-Reorder": {
     "id": "Menu-Reorder",
@@ -3109,19 +3109,19 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "id": "Clipboard-Sync",
     "repo": "hugo529100/hfs-Clipboard-Sync",
     "author": "hugo529100",
-    "description": "Cross-device clipboard sync for HFS 3. Share cut/paste between browsers and devices logged into the same account. Server-side paste claiming prevents duplicates; pages on affected addresses update lists in place. Guests are rejected.",
-    "version": 1.9,
+    "description": "Cross-device clipboard sync for HFS 3. Share cut and copy clipboards between browsers and devices logged into the same account. Server-side paste claiming prevents duplicate moves; pages on affected addresses update lists in place. Guests are rejected. Copy clipboards are synced only while copy-files is running, and large cross-disk pastes are handed to SafeMove (or the older FastMove) for a resumable, throttled, hash-verified queue.",
+    "version": 2.3,
     "source": "plugin",
-    "updatedAt": 1795590165678
+    "updatedAt": 1795752961062
   },
   "hugo529100/hfs-Clipboard-Sync": {
     "id": "Clipboard-Sync",
     "repo": "hugo529100/hfs-Clipboard-Sync",
     "author": "hugo529100",
-    "description": "Cross-device clipboard sync for HFS 3. Share cut/paste between browsers and devices logged into the same account. Server-side paste claiming prevents duplicates; pages on affected addresses update lists in place. Guests are rejected.",
-    "version": 1.9,
+    "description": "Cross-device clipboard sync for HFS 3. Share cut and copy clipboards between browsers and devices logged into the same account. Server-side paste claiming prevents duplicate moves; pages on affected addresses update lists in place. Guests are rejected. Copy clipboards are synced only while copy-files is running, and large cross-disk pastes are handed to SafeMove (or the older FastMove) for a resumable, throttled, hash-verified queue.",
+    "version": 2.3,
     "source": "plugin",
-    "updatedAt": 1795590165678
+    "updatedAt": 1795752961062
   },
   "hugo529100/hfs-Lazyloading": {
     "id": "Lazyloading",
@@ -3265,7 +3265,7 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "description": "Adds a cache cleaner button to user panel to clear IndexedDB, Blob URLs and Cache Storage",
     "version": 3,
     "source": "catalog",
-    "updatedAt": 1795738808338
+    "updatedAt": 1795753082635
   },
   "hugo529100/hfs-HighContrastDisable": {
     "id": "HighContrastDisable",
@@ -3383,5 +3383,23 @@ window.PLUGINS_OPTIMIZER_DESCRIPTIONS = {
     "version": 1,
     "source": "plugin",
     "updatedAt": 1795738089078
+  },
+  "SafeMove": {
+    "id": "SafeMove",
+    "repo": "hugo529100/hfs-SafeMove",
+    "author": "hugo529100",
+    "description": "SafeMove: account-isolated, resumable migration of large files across volumes. Queues large HFS move/copy jobs with configurable parallelism (one at a time by default), throttling and hash verification, visible only to the owning account; same-disk and small operations stay native.",
+    "version": 2,
+    "source": "plugin",
+    "updatedAt": 1795751550013
+  },
+  "hugo529100/hfs-SafeMove": {
+    "id": "SafeMove",
+    "repo": "hugo529100/hfs-SafeMove",
+    "author": "hugo529100",
+    "description": "SafeMove: account-isolated, resumable migration of large files across volumes. Queues large HFS move/copy jobs with configurable parallelism (one at a time by default), throttling and hash verification, visible only to the owning account; same-disk and small operations stay native.",
+    "version": 2,
+    "source": "plugin",
+    "updatedAt": 1795751550013
   }
 };
